@@ -1,0 +1,163 @@
+\section{争议、裁决与判决}\label{sec:disputes}
+
+\Jam 提供了一种记录 \emph{判决（judgments）} 的机制：这是大多数验证者就某份 \emph{工作报告（work-report）}（\Jam 中的一单位已完成工作，见第 \ref{sec:reporting} 节）之有效性所进行的具后果性的投票。此类判决的集合称为 \emph{裁决（verdicts）}。同时，\Jam 也提供登记与既定 \emph{裁决} 相悖的 \emph{违规（offenses）}、判决与担保的方式。它们共同构成 \emph{争议（disputes）} 系统。
+
+在实践中，登记裁决并不会频繁发生，但它是一个重要的安全兜底：用于从处理流水线中移除并封禁无效的工作报告；并在对其故障达成共识时，将问题密钥从验证者集合中移除。该机制还帮助协调节点回滚包含无效工作报告的链式扩展，并为在更高层系统中聚合所有违规验证者以进行惩罚提供便利手段。
+
+判决声明自然产生于审计过程，预期多为肯定性判决，进一步确认担保人对工作报告有效性的断言。若出现否定性判决，则所有验证者都会审计该工作报告，并假定最终将达成裁决。审计与担保均为链下过程，见第 \ref{sec:workpackagesandworkreports} 与 \ref{sec:auditing} 节。
+
+对某报告的否定判决意味着链已回滚至该报告累加之前的某个时间点，通常在累加发生的那个区块的前一个区块处分叉。关于链选择的具体策略，详见第 \ref{sec:bestchain} 节。对于带有非正面裁决的区块进行出块，将产生取消其即将发生的累加之效果，见公式 \ref{eq:removenonpositive}。
+
+登记裁决还会将该事件的永久记录上链，并允许任何违规密钥立即或在后续区块中被上链，同样形成永久记录。
+
+对不当行为的持久链上记录有多方面益处。它为任何更高层的验证者选择逻辑提供了一个简单手段，用以识别在何种情形下必须对某验证者采取行动。若 \Jam 用于 \emph{Polkadot} 之类的公共网络，则这将意味着在质押平行链上对违规验证者的质押进行惩罚性削减（slashing）。
+
+如前所述，将被高度确信为无效的报告记录在案很重要，以确保此类报告不被重新提交。相反，将被判定为有效的报告记录在案，则可确保在链的未来不再对其发起新的争议。
+
+\subsection{状态}
+
+\emph{争议} 状态包含四个条目，其中三个与裁决有关：良好集合（$\goodset$）、不良集合（$\badset$）与异常集合（$\wonkyset$），分别包含被判定为正确、错误或似乎无法判定之工作报告的哈希。第四个条目为惩罚集合（$\offenders$），其中是被认定对某份工作报告作出错误判决之验证者的 Ed25519 公钥集合。
+\begin{equation}\label{eq:disputesspec}
+  \disputes \equiv \tup{\goodset, \badset, \wonkyset, \offenders}
+\end{equation}
+
+\subsection{外部交易}
+
+争议外部交易 $\xtdisputes$ 是三个原本独立外部交易的功能性分组。它由 \emph{裁决} $\xtverdicts$、\emph{罪责} $\xtculprits$ 与 \emph{过错} $\xtfaults$ 组成。裁决是来自现行验证者集合或前一纪元验证者集合中恰好达到“三分之二加一”的判决汇编，即分别来自 $\activeset$ 或 $\previousset$ 的 Ed25519 密钥持有者的判决。罪责与过错分别是针对一个或多个验证者不当行为的证明：前者指对已被判定无效的工作报告进行担保，后者指对某工作报告有效性作出与事实相矛盾的签名判决。二者均视为一种 \emph{违规（offense）}。形式化如下：
+\begin{equation}
+  \begin{aligned}
+    \xtdisputes &\equiv \tuple{\xtverdicts, \xtculprits, \xtfaults} \\
+    \where \xtverdicts &\in \sequence{\tuple{
+      \hash,
+      \ffrac{\thetime}{\Cepochlen} - \N_2,
+      \sequence[\floor{\twothirds\Cvalcount} + 1]{\tuple{
+        \set{\top, \bot},
+        \valindex,
+        \edsignaturebase
+      }}
+    }}\\
+    \also \xtculprits &\in \sequence{\tuple{\hash, \edkey, \edsignaturebase}} \,,\quad
+    \xtfaults \in \sequence{\tuple{\hash, \set{\top,\bot}, \edkey, \edsignaturebase}}
+  \end{aligned}
+\end{equation}
+
+所有判决的签名必须相对于两类允许的验证者密钥集合之一有效；该集合由裁决的第二个分量指示，其取值必须为前一状态的纪元索引或再减一。形式化为：
+\begin{align}
+  &\begin{aligned}
+    &\forall \tup{\xv¬reporthash, \xv¬epochindex, \xv¬judgments} \in \xtverdicts, \forall \tup{\xvj¬validity, \xvj¬judgeindex, \xvj¬signature} \in \xv¬judgments : \xvj¬signature \in \edsignature{\mathbf{k}[\xvj¬judgeindex]_\vk¬ed}{\mathsf{X}\sub{v} \concat \xv¬reporthash}\\
+    &\quad\where \mathbf{k} = \begin{cases}
+      \activeset &\when \xv¬epochindex = \displaystyle \ffrac{\thetime}{\Cepochlen}\\
+      \previousset &\otherwise\\
+    \end{cases}
+  \end{aligned}\\
+  &\Xvalid \equiv \text{{\small \texttt{\$jam\_valid}}}\,,\ \Xinvalid \equiv \text{{\small \texttt{\$jam\_invalid}}}
+\end{align}
+
+违规方（offender）的签名也必须同样有效，并引用带有判决的工作报告；同时不得上报已在惩罚集合中的密钥：
+\begin{align}
+  \forall \tup{\xc¬reporthash, \xc¬offenderindex, \xc¬signature} &\in \xtculprits : \bigwedge \abracegroup{
+    &\xc¬reporthash \in \badset' \,,\\
+    &\xc¬offenderindex \in \mathbf{k} \,,\\
+    &\xc¬signature \in \edsignature{\xc¬offenderindex}{\Xguarantee \concat \xc¬reporthash}
+  }\\
+  \forall \tup{\xf¬reporthash, \xf¬validity, \xf¬offenderindex, \xf¬signature} &\in \xtfaults : \bigwedge \abracegroup{
+    &\xf¬reporthash \in \badset' \Leftrightarrow \xf¬reporthash \not\in \goodset' \Leftrightarrow \xf¬validity \,,\\
+    &k \in \mathbf{k} \,,\\
+    &s \in \edsignature{\xf¬offenderindex}{\mathsf{X}\sub{v} \concat \xf¬reporthash}\\
+  }\\
+  \nonumber\where \mathbf{k} &= \set{\build{i_\vk¬ed}{i \in \previousset \cup \activeset}} \setminus \offenders
+\end{align}
+
+裁决 $\xtverdicts$ 必须按报告哈希排序。违规签名 $\xtculprits$ 与 $\xtfaults$ 各自必须按验证者的 Ed25519 公钥排序。外部交易中不得出现重复的报告哈希，且亦不得与既往已上报的哈希重复。形式化为：
+\begin{align}
+  &\xtverdicts = \sqorderuniqby{\xv¬reporthash}{\tup{\xv¬reporthash, \xv¬epochindex, \xv¬judgments} \in \xtverdicts}\\
+  &\xtculprits = \sqorderuniqby{\xc¬offenderindex}{\tup{\xc¬reporthash, \xc¬offenderindex, \xc¬signature} \in \xtculprits} \,,\ 
+  \xtfaults = \sqorderuniqby{\xf¬offenderindex}{\tup{\xf¬reporthash, \xf¬validity, \xf¬offenderindex, \xf¬signature} \in \xtfaults}\!\!\!\!\!\!\\
+  &\set{\build{\xv¬reporthash}{\tup{\xv¬reporthash, \xv¬epochindex, \xv¬judgments} \in \xtverdicts}} \disjoint \goodset \cup \badset \cup \wonkyset
+\end{align}
+
+所有裁决中的判决必须按验证者索引排序，且不得有重复：
+\begin{equation}
+  \forall \tup{\xv¬reporthash, \xv¬epochindex, \xv¬judgments} \in \xtverdicts : \xv¬judgments = \sqorderuniqby{\xvj¬judgeindex}{\tup{\xvj¬validity, \xvj¬judgeindex, \xvj¬signature} \in \xv¬judgments}
+\end{equation}
+
+\newcommand*{\verdicts}{\mathbf{v}}
+\newcommand*{\vs¬reporthash}{\¬reporthash}
+\newcommand*{\vs¬approval}{t}
+
+我们将 $\verdicts$ 定义为：取自区块外部交易中引入之裁决序列，仅包含报告哈希与正向判决的数量。我们要求该数量必须恰为“三分之二加一”、零或“三分之一”，分别表示报告为良好、为不良或为异常。\footnote{此要求看似武断，但它们恰是我们三类可能动作的决策阈值，并可接受，因为安全假设包含至少“三分之二加一”的验证者在线（\cite{cryptoeprint:2024/961} 对安全影响有详尽讨论）。} 形式化为：
+\begin{align}\label{eq:verdicts}
+  \verdicts &\in \sequence{\tup{
+    \hash,
+    \set{0, \floor{\onethird\Cvalcount}, \floor{\twothirds\Cvalcount} + 1}
+  }} \\
+  \verdicts &= \sq{\build{
+      \tup{
+        \xv¬reporthash,
+        \sum_{\tup{\xvj¬validity, \xvj¬judgeindex, \xvj¬signature} \in \xv¬judgments}\!\!\!\!
+        \xvj¬validity
+      }
+    }{
+      \tup{\xv¬reporthash, \xv¬epochindex, \xv¬judgments} \orderedin \xtverdicts
+    }}
+\end{align}
+
+对该外部交易的组成还施加如下约束：若某裁决仅包含有效判决，则意味着同一报告在过错序列 $\xtfaults$ 中至少有一条有效记录；若某裁决仅包含无效判决，则意味着同一报告在罪责序列 $\xtculprits$ 中至少有两条有效记录。形式化为：
+\begin{align}
+  \forall \tup{\¬reporthash, \floor{\twothirds\Cvalcount} + 1} \in \verdicts &:
+    \exists \tup{\¬reporthash, \dots} \in \xtfaults \\
+  \forall \tup{\¬reporthash, 0} \in \verdicts &:
+    \len{\set{\tup{\¬reporthash, \dots} \in \xtculprits}} \ge 2
+\end{align}
+
+我们将对其判定为不确定或无效的任何工作报告从其核心中清除：
+\begin{equation}\label{eq:removenonpositive}
+  \forall c \in \coreindex : \reportspostjudgement\subb{c} = \begin{cases}
+    \none &\!\!\!\!\when
+      \tup{\blake{\reports\subb{c}_\rs¬workreport}, \vs¬approval} \in \verdicts,
+      \vs¬approval < \floor{\twothirds\Cvalcount} \\
+    \reports\subb{c} &\!\!\!\!\otherwise
+  \end{cases}\!\!\!\!\!\!\!
+\end{equation}
+
+状态中的良好集合、 不良集合与异常集合吸收来自各个裁决的报告哈希。最后，惩罚集合累积任何被认定有违规的验证者密钥。形式化为：
+\begin{align}
+  \label{eq:goodsetdef}
+  \goodset' &\equiv \goodset \cup \set{\build{
+      \vs¬reporthash
+    }{
+      \tup{\vs¬reporthash, \floor{\twothirds\Cvalcount} + 1} \in \verdicts
+    }} \\
+  \label{eq:badsetdef}
+  \badset' &\equiv \badset \cup \set{\build{
+      \vs¬reporthash
+    }{
+      \tup{\vs¬reporthash, 0} \in \verdicts
+    }} \\
+  \label{eq:wonkysetdef}
+  \!\!\wonkyset' &\equiv \wonkyset \cup \set{\build{
+      \vs¬reporthash
+    }{
+      \tup{\vs¬reporthash, \floor{\onethird\Cvalcount}} \in \verdicts
+    }} \\
+  \label{eq:offendersdef}
+  \offenders' &\equiv \offenders \cup \set{\build{
+      \¬offenderindex
+    }{
+      \tup{\¬offenderindex, \dots} \in \xtculprits
+    }} \cup \set{\build{
+      \¬offenderindex
+    }{
+      \tup{\¬offenderindex, \dots} \in \xtfaults
+    }}\!\!\!\!
+\end{align}
+
+\subsection{区块头}\label{sec:judgmentmarker}
+
+违规者标记必须精确包含所有新增违规者的密钥。形式化为：
+\begin{align}
+  \H_\¬offendersmark &\equiv
+    \sq{\build{\¬offenderindex}{\tup{\¬offenderindex,\dots} \orderedin \xtculprits}}
+    \concat
+    \sq{\build{\¬offenderindex}{\tup{\¬offenderindex,\dots} \orderedin \xtfaults}}
+\end{align}

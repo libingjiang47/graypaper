@@ -1,0 +1,175 @@
+\section{记号约定}
+\label{sec:notation}
+
+与以太坊黄皮书类似，本文贯穿使用了一系列记号约定。为清晰起见，我们在此加以定义。下文将以 \emph{YP} 指代以太坊黄皮书。
+
+\subsection{版式}\label{sec:typography}
+
+我们使用多种字体来表示不同类型的术语。若某术语只在文档的局部段落中相关，我们使用小写罗马体字母，例如 $x$, $y$（通常表示集合或序列的元素），或 $i$, $j$（通常表示数值索引）。当在局部语境中指代布尔术语或函数时，我们往往使用大写罗马体字母，如 $A$, $F$。若需强调某术语较为复杂或多维，尤其在涉及序列与集合时，我们可能使用黑体。
+
+对于在本文中保持全局定义的条目，我们采用其他版式约定。集合通常以黑板体表示，例如 $\N$ 表示包含零在内的全体自然数。可参数化的集合可以使用下标或在后面加上括号形式的参数。外部引入、被本文使用但非本文首次引入的函数，以花体表示，例如 $\fnblake$ 表示 Blake2 密码哈希函数。对于本文中引入、且与具体上下文无关的其他函数，我们使用大写希腊字母表示，例如 $\transitionstate$ 表示状态转换函数。
+
+对于并非常数但在全文范围内具有一致含义的值，我们使用小写希腊字母表示，如 $\thestate$（状态标识）。当需要强调其异常复杂时，可能将其加粗。
+
+\subsection{函数与运算符}\label{sec:functions}
+我们定义“先于（precedes）”关系，以指示一个术语可由另一个术语定义。例如 $y \prec x$ 表示 $y$ 可仅以 $x$ 为自变量来定义：
+\begin{align}\label{eq:precedes}
+  y \prec x \Longleftrightarrow \exists f: y = f(x)
+\end{align}
+
+%我们将 $\mathcal{KV}(f)$ 定义为函数的定义域与陪域元素对的集合。
+
+%我们用 $\fold$ 表示一般折叠算子：
+%\begin{align}
+%  \fold^{S}_{I} F \equiv \begin{cases}
+%    I &\when S = \sq{} \\
+%    \displaystyle \fold^{[S_1, \dots ]}_{F(I, S_0)} F &\otherwise
+%  \end{cases}
+%\end{align}
+
+“若无则替（substitute-if-nothing）”函数 $\fnsubifnone$ 等价于其参数列表中第一个不为 $\none$ 的参数；若不存在，则为 $\none$：
+\begin{align}\label{eq:substituteifnothing}
+  \subifnone{a_0, \dots a\sub{n}} \equiv a\sub{x} : (a\sub{x} \ne \none \vee x = n), \bigwedge_{i=0}^{x-1} a\sub{i} = \none
+\end{align}
+因此，例如 $\subifnone{\none, 1, \none, 2} = 1$，而 $\subifnone{\none, \none} = \none$。
+
+\subsection{集合}\label{sec:sets}
+
+给定集合 $\mathbf{s}$，其幂集与基数分别记为 $\protoset{s}$ 与 $\len{\mathbf{s}}$。在构造幂集时，我们可使用数字下标以将结果限定为特定基数。例如 $\protoset{\set{1, 2, 3}}_2 = \set{ \set{1, 2}, \set{1, 3}, \set{2, 3} }$。
+
+集合可以与标量进行运算，其结果为对每个元素施加该运算后的集合，例如 $\set{1, 2, 3} + 3 = \set{4, 5, 6}$。函数也可映射到集合所有成员以得到新集合；为清晰起见，我们用上标 $\#$ 表示此类作用，例如 $f^{\#}(\set{1, 2}) \equiv \set{f(1), f(2)}$。
+
+我们用关系 $\disjoint$ 表示集合不相交。形式化地：
+\begin{equation*}
+  A \cap B = \none \Longleftrightarrow A \disjoint B
+\end{equation*}
+
+我们常用 $\none$ 表示某术语可以合法地“无具体值”。其基数定义为零。我们定义算子（类型构造）$\optional{}$，使得 $\optional{A} \equiv A \cup \set{\none}$，即在集合 $A$ 的基础上额外包含元素 $\none$。
+
+术语 $\error$ 用于指示操作发生了意外失败，或某个值无效/出乎意料。（我们尽量避免用更常见的 $\bot$，以免与布尔假值混淆；在某些语境中，布尔假值可能被理解为“成功但结果为假”。）
+
+\subsection{数}\label{sec:numbers}
+
+$\N$ 表示包含零在内的自然数集合；$\Nmax{n}$ 则表示该集合限制为小于 $n$ 的取值。形式化地，$\N = \set{0, 1, \dots}$ 且 $\Nmax{n} = \set{\build{x}{x \in \N, x < n}}$。
+
+$\Z$ 表示整数集合。我们用 $\Z\interval{a}{b}$ 表示区间 $[a, b)$ 内的整数集合。形式化地，$\Z\interval{a}{b} = \set{\build{x}{x \in \Z, a \le x < b}}$。例如 $\Z\interval{2}{5} = \set{2, 3, 4}$。我们将该集合的“起点/长度”形式记为 $\Z\subrange{a}{b}$，其为 $\Z\interval{a}{a+b}$ 的简写。
+
+在表示序列长度但又希望限制其大小的场景（尤其处理需实际存储的字节序列长度）中，通常可定义为集合 $\Nbits{32}$。为清晰起见，我们用 $\bloblength$ 表示字节序列的长度集合，其等价于 $\Nbits{32}$。
+
+我们用 $\rem$ 表示取模运算，例如 $5 \rem 3 = 2$。另外，我们偶尔用 $\remainder$ 将除法结果表示为“商与余数”，例如 $5 \div 3 = 1 \remainder 2$。
+
+\subsection{字典}\label{sec:dictionaries}
+
+\emph{字典} 是一种可能部分定义的从某个定义域到某个陪域的映射，类似通常意义上的函数。但与函数不同的是，字典中的键值对总是可枚举的，我们以某种数据结构将其表示为全部 $\kv{key}{value}$ 的集合。（在此类数据定义的映射中，定义域的值常称为 \emph{键}，陪域的值常称为 \emph{值}，故名。）
+
+据此，我们用形式 $\dictionary{\mathrm{K}}{\mathrm{V}}$ 表示从定义域 $\mathrm{K}$ 到值域 $\mathrm{V}$ 的字典。它是对偶集合 $\tuple{K, V}$ 的幂集之子集：
+\begin{equation}
+  \dictionary{\mathrm{K}}{\mathrm{V}} \subset \protoset{\tuple{\mathrm{K}, \mathrm{V}}}
+\end{equation}
+
+该“子集”约束来自字典的要求：对任一给定键 $k$，最多只能关联一个唯一的值：
+\begin{equation}
+  \forall \mathrm{K}, \mathrm{V}, \mathbf{d} \in \dictionary{\mathrm{K}}{\mathrm{V}} : \forall \tup{k, v} \in \mathbf{d} : \exists! v' : \tup{k, v'} \in \mathbf{d}
+\end{equation}
+
+在字典语境中，我们用“映射记号”表示键值对：
+\begin{align}
+  &\dictionary{\mathrm{K}}{\mathrm{V}} \equiv \protoset{\keyvalue{\mathrm{K}}{\mathrm{V}}}\\
+  &\mathbf{p} \in \keyvalue{\mathrm{K}}{\mathrm{V}} \Leftrightarrow \exists k \in \mathrm{K}, v \in \mathrm{V}, \mathbf{p} \equiv \kv{k}{v}
+\end{align}
+
+该断言使我们可以无歧义地为字典 $\mathbf{d}$ 定义下标与“减去”运算：
+\begin{align}
+  &\forall \mathrm{K}, \mathrm{V}, \mathbf{d} \in \dictionary{\mathrm{K}}{\mathrm{V}}: \mathbf{d}\subb{k} \equiv \begin{cases}
+    v & \text{if}\ \exists k : \kv{k}{v} \in \mathbf{d} \\
+    \none & \otherwise
+  \end{cases}\\
+  &\begin{aligned}
+    &\forall \mathrm{K}, \mathrm{V}, \mathbf{d} \in \dictionary{\mathrm{K}}{\mathrm{V}}, \mathbf{s} \subseteq K:\\
+    &\quad \mathbf{d} \setminus \mathbf{s} \equiv \set{ \kv{k}{v}: \kv{k}{v} \in \mathbf{d}, k \not\in \mathbf{s} }
+  \end{aligned}
+\end{align}
+
+注意：当使用下标时，隐含断言该键在字典中存在。若不存在，则结果未定义，凡依赖之的区块必须视为无效。
+
+为表示字典 $\mathbf{d} \in \dictionary{K}{V}$ 的“活动定义域”（即键集合），我们用 $\keys{\mathbf{d}} \subseteq K$；其值域（即值集合）用 $\values{\mathbf{d}} \subseteq V$。形式化地：
+\begin{align}
+  \forall \mathrm{K}, \mathrm{V}, \mathbf{d} \in \dictionary{\mathrm{K}}{\mathrm{V}} : \keys{\mathbf{d}} &\equiv \set{\build{k}{\exists v : \kv{k}{v} \in \mathbf{d}}} \\
+  \forall \mathrm{K}, \mathrm{V}, \mathbf{d} \in \dictionary{\mathrm{K}}{\mathrm{V}} : \values{\mathbf{d}} &\equiv \set{\build{v}{\exists k : \kv{k}{v} \in \mathbf{d}}}
+\end{align}
+
+注意：由于 $\values{}$ 的值域为集合，当字典中出现不同键却对应相同值时，该集合仅包含此值一次。
+
+字典可通过并集算子 $\cup$ 合并；当键冲突时，优先采用右操作数：
+\begin{equation}
+  \forall \mathbf{d} \in \mathrm{K}, \mathrm{V}, \tup{\mathbf{d}, \mathbf{e}} \in \dictionary{\mathrm{K}}{\mathrm{V}}^2 : \mathbf{d} \cup \mathbf{e} \equiv (\mathbf{d} \setminus \keys{\mathbf{e}}) \cup \mathbf{e}
+\end{equation}
+
+\subsection{元组}\label{sec:tuples}
+
+元组是一组值的组合，其中各项可来自不同集合。用圆括号表示，例如自然数 $3$ 与 $5$ 的元组 $t$ 记为 $t = \tup{3, 5}$。它属于自然数对的集合，通常记为 $\N \times \N$，在本文中记为 $\tuple{\N, \N}$。
+
+我们经常需要引用元组中的特定分量，因此便利起见为每个分量命名。例如含两个命名自然分量 $a$ 与 $b$ 的元组可记为 $T = \tuple{\isa{a}{\N},\,\isa{b}{\N}}$。我们用下标引用元素 $t \in T$ 的分量：若 $t = \tup{\is{a}{3},\,\is{b}{5}}$，则 $t_{a} = 3$ 且 $t_{b} = 5$。
+
+\subsection{序列}\label{sec:sequences}
+
+序列是带有特定顺序的一列元素，顺序与其取值无关。所有元素均取自某集合 $T$ 的序列集合记为 $\sequence{T}$，其定义为一个部分映射 $\N \to T$。恰含 $n$ 个元素、且每个元素均属于 $T$ 的序列集合记为 $\sequence[n]{T}$，由此定义一个完备映射 $\Nmax{n} \to T$。类似地，至多含 $n$ 个元素与至少含 $n$ 个元素的序列集合分别记为 $\sequence[:n]{T}$ 与 $\sequence[n:]{T}$。
+
+序列可下标，因此序列 $\mathbf{s}$ 中索引为 $i$ 的元素可记为 $\mathbf{s}\subb{i}$，或在不致混淆时记为 $\mathbf{s}\sub{i}$。区间下标可用省略号表示，例如：$\sq{0, 1, 2, 3}\sub{\dots2} = \sq{0, 1}$，以及 $\sq{0, 1, 2, 3}\sub{1\dots+2} = \sq{1, 2}$。序列长度记为 $\len{\mathbf{s}}$。
+
+我们将模下标记为 $\cyclic{\mathbf{s}\subb{i}} \equiv \mathbf{s}[\,i \rem \len{\mathbf{s}}\,]$。序列 $\mathbf{s} = \sq{..., x}$ 的末元素 $x$ 记为 $\text{last}(\mathbf{s}) \equiv x$。
+
+\subsubsection{构造}
+我们可按其他值的递增下标来定义一个序列：$\sq{\mathbf{x}_0, \mathbf{x}_1, \dots }\sub{\dots n}$ 表示从 $\mathbf{x}_0$ 开始到 $\mathbf{x}_{n-1}$ 的 $n$ 个值的序列。也可将序列元素定义为其索引 $i$ 的函数：$\sq{\build{f(i)}{i \orderedin \Nmax{n}}} \equiv \sq{f(0), f(1), \dots, f(n - 1)}$。因此，当元素顺序重要时我们使用 $\orderedin$ 而非无序记号 $\in$。后者也可写为简记 $\sq{f(i \orderedin \Nmax{n})}$。凡具有明确序的集合（尤其是序列）均可如此使用，例如 $\sq{\build{i^2}{i \orderedin \sq{1, 2, 3}}} = \sq{1, 4, 9}$。多个序列可组合，例如 $\sq{\build{i \cdot j}{i \orderedin \sq{1, 2, 3}, j \orderedin \sq{2, 3, 4}}} = \sq{2, 6, 12}$。
+
+与集合相同，我们使用显式记法 $f^{\#}$ 表示对序列所有元素的映射。
+
+当希望从应忽略顺序的集合或其他序列构造一个“按序序列”时，使用 $\sqorderby{f(i)}{i \in X}$ 记法，表示将参数 $X$ 的元素按 $f(i)$ 的递增顺序排列成序列。
+
+若省略关键字（key），则默认按元素本身排序；即 $\order{i \in X} \equiv \sqorderby{i}{i \in X}$。$\sqorderuniqby{i}{i \in X}$ 与前者相同，但移除任何重复值。例如 $\mathbf{s} = \sq{1, 3, 2, 3}$，则 $\sqorderuniqby{i}{i \in \mathbf{s}} = \sq{1, 2, 3}$，且 $\sqorderby{-i}{i \in \mathbf{s}} = \sq{3, 3, 2, 1}$。
+
+也可用常规集合构造从序列构造集合，例如若 $\mathbf{s} = \sq{1, 2, 3, 1}$，则 $\set{\build{a}{a \in \mathbf{s}}} \equiv \set{1, 2, 3}$。
+
+对具有定义好序关系的值的序列，其字典序（或类似）是隐含的，例如 $\sq{1, 2, 3} < \sq{1, 2, 4}$ 且 $\sq{1, 2, 3} < \sq{1, 2, 3, 1}$。
+
+\subsubsection{编辑}
+我们定义序列拼接算子 $\concat$，使得 $\sq{\mathbf{x}_0, \mathbf{x}_1, \dots, \mathbf{y}_0, \mathbf{y}_1, \dots} \equiv \mathbf{x} \concat \mathbf{y}$。对“序列的序列”，定义一元“全部拼接”算子：$\concatall{\mathbf{x}}\equiv\mathbf{x}_0 \concat \mathbf{x}_1 \concat \dots$。此外，我们记元素拼接为 $x \append i \equiv x \concat \sq{i}$。由序列 $\mathbf{s}$ 的前 $n$ 个元素构成的序列记为 ${\overrightarrow{\mathbf{s}}}^n \equiv \sq{\mathbf{s}_0, \mathbf{s}_1, \dots, \mathbf{s}_{n-1}}$，而仅包含末尾元素的记为 ${\overleftarrow{\mathbf{s}}}^n$。
+
+我们将 ${}^\text{T}\mathbf{x}$ 定义为“序列之序列” $\mathbf{x}$ 的转置（完整定义见式 \ref{eq:transpose}）。也可将其应用于“序列之元组”，得到“元组之序列”。
+
+我们用“近似集合减法”的方式表示序列减法：具体地，对某序列 $\mathbf{s}$，去除其最左侧等于 $v$ 的元素，记为 $\mathbf{s}\seqminusl\set{v}$。
+
+\subsubsection{布尔值}
+$\bitstring[s]$ 表示长度为 $s$ 的布尔串，因此 $\bitstring[s] = \sequence[s]{\bool}$。处理布尔值时，我们可默认将其与位等同：$\top = 1$，$\bot = 0$，于是 $\bitstring[\Box] = \sequence[\Box]{\N_2}$。我们用函数 $\text{bits}(\blob) \in \bitstring$ 表示将字节序列 $\blob$ 视作位序列（最高有效位在前），例如 $\text{bits}(\sq{160, 0}) = \sq{1, 0, 1, 0, 0, \dots}$。
+
+一元“非”运算既作用于布尔值也作用于布尔序列，因此 $\neg \top = \bot$ 且 $\neg \sq{\top, \bot} = \sq{\bot, \top}$。
+
+\subsubsection{八位字节与 Blob}
+
+$\blob$ 表示任意长度的八位字节串（“blobs”）。如预期，$\blob[x]$ 表示长度为 $x$ 的此类序列；$\blob[\$]$ 表示 $\blob$ 的子集，其为 \textsc{ascii} 编码的字符串。注意：虽然“八位字节”与小于 256 的自然数之间存在明显的一一对应关系，并可在两种形式间进行隐式转换，但我们并不将其视为完全等价的对象。尤其在序列化语境中，八位字节总是“自我序列化”，而自然数的序列化可能需要若干个八位字节，取决于其数值大小与编码变体。
+
+\subsubsection{洗牌}
+
+我们定义序列洗牌函数 $\fnfyshuffle$，其最早由 \cite{fisheryates1938statistical} 提出，高效的原地算法由 \cite{wikipedia2024fisheryates} 描述。该函数接受一个序列与某份熵，返回相同长度且含相同元素的序列，其顺序由熵决定。熵可提供为无限自然数序列或一个哈希。完整定义见附录 \ref{sec:shuffle}。
+
+\subsection{密码学}\label{sec:cryptography}
+
+\subsubsection{哈希}
+
+$\hash$ 表示 256 位值的集合，等价于 $\blob[32]$。本文中的所有哈希函数输出均为此类型；$\zerohash$ 为 $\sq{0}_{32}$。我们假定函数 $\blake{m \in \blob} \in \hash$，即 \cite{rfc7693} 引入的 Blake2b 256 位哈希；以及函数 $\keccak{m \in \blob} \in \hash$，即 \cite{bertoni2013keccak} 提出的、并被 \cite{wood2014ethereum} 采用的 Keccak 256 位哈希。
+
+哈希函数的输入应视为先经过我们的序列化编解码器 $\mathcal{E}$，得到可供密码学处理的字节序列。（注意：字节序列天然地是恒等变换。）我们也可能希望将字节序列解释为其他类型的值，此时假定有解码函数 $\decode{x \in \blob}$。在两种情况下，我们都可在变换函数下标中标注我们期望该字节序列项的字节数。例如，$r = \mathcal{E}_4(x \in \N)$ 断言 $x \in \Nbits{32}$ 且 $r \in \blob[4]$；而 $s = \decode[8]{y}$ 断言 $y \in \blob[8]$ 且 $s \in \Nbits{64}$。
+
+\subsubsection{签名体制}\label{sec:signing}
+
+$\edsignature{k}{m} \subset \blob[64]$ 表示有效的 Ed25519 签名集合（由 \cite{rfc8032} 定义），其由与公钥 $k \in \hash$ 相对应的私钥对消息 $m$ 生成。为易读起见，我们用 $\edkey$ 表示有效公钥集合。
+
+我们用 $\bskey$ 表示 Bandersnatch 有效公钥集合（见附录 \ref{sec:bandersnatch}）。$\bssignature{k \in \bskey}{x \in \blob}{m \in \blob} \subset \blob[96]$ 表示有效的“单上下文（singly-contextualized）”签名集合，其中使用与公钥 $k$ 对应的私钥、上下文 $x$ 与消息 $m$。
+
+$\bsringproof{r \in \ringroot}{x \in \blob}{m \in \blob} \subset \blob[784]$ 则表示有效的 Bandersnatch Ring\textsc{vrf} 确定性的单上下文知识证明，其证明“知晓某组秘密中的一个”，该组由有效 \emph{根} 集合 $\ringroot \subset \blob[144]$ 中的某个根标识。我们记 $\getringroot{\mathbf{s} \in \sequence{\bskey}} \in \ringroot$ 为具体到一组公钥对应的根。一个根蕴含一组 Bandersnatch 密钥对；知晓其中任一私钥，即可以对集合中“某个唯一秘密的知晓”作出唯一、有效且匿名的证明。
+
+Bandersnatch 签名与 Ring\textsc{vrf} 证明都严格意味着成员将其私钥与上下文 $x$ 和消息 $m$ 共同使用；不同点在于前者可识别成员身份，后者保持匿名。此外二者都定义一个 \textsc{vrf} \emph{输出}，即一个受 $x$ 影响而不受 $m$ 影响的高熵哈希，形式上分别记为 $\banderout{\bsringproof{r}{x}{m}} \subset \hash$ 与 $\banderout{\bssignature{k}{x}{m}} \subset \hash$。
+
+我们用 $\blskey \subset \blob[144]$ 表示 \textsc{bls} 签名体制（\cite{jofc-2004-14130}）的公钥集合，其曲线为 \textsc{bls}\oldstylenums{12}-\oldstylenums{381}（\cite{bls12-381}）。相应地，我们用 $\blssignature{k}{m}$ 表示公钥 $k \in \blskey$ 对消息 $m \in \blob$ 的有效 \textsc{bls} 签名集合。
+
+我们定义用于创建有效签名的函数：$\edsigndata{k}{m} \in \edsignature{k}{m}$，$\blssigndata{k}{m} \in \blssignature{k}{m}$。我们断言，能够计算出这些函数的结果依赖于对私钥的掌握。

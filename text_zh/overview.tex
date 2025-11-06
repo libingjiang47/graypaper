@@ -1,0 +1,226 @@
+\section{概览}\label{sec:overview}
+
+与黄皮书相同，我们首先回顾：区块链可被定义为“某个初始状态”与“块级状态转换函数”的二元组。后者在给定“某个先验状态与施加其上的一个区块”的配对后，定义出后验状态。形式化地：
+\begin{align}\label{eq:statetransition}
+\thestate' \equiv \transitionstate(\thestate, \block)
+\end{align}
+
+其中 $\thestate$ 为先验状态，$\thestate'$ 为后验状态，$B$ 为某个有效区块，$\transitionstate$ 为我们的块级状态转换函数。
+
+从宏观上讲，\Jam（乃至一般的区块链）可以仅通过给出 $\transitionstate$ 与某个\emph{创世状态} $\thestate^0$ 来定义。\footnote{在实践中，区块链有时会对部分参与者的行为作出“\emph{诚实}”这一假设，即这些行为既非可被证明的错误，也非在经济上被强烈劝阻。即便该假设合理，它仍应当独立于状态转换规则而被明示。} 我们还对若干“共识外的公共知识”作出附加假设：一个全网已知的时钟，以及在相同共识规则下与其他系统共享数据的现实手段。后两者在 \emph{YP} 中同样被默许为前提。
+
+\subsection{区块}
+
+为便于理解与形式化，我们尽可能将术语拆分为其功能分量。我们先从区块 $\block$ 开始，它可重述为头部 $\H$ 与系统外部的输入数据（故称 \emph{链下输入}）$\extrinsic$：
+\begin{align}
+  \label{eq:block}\block &\equiv \tup{\header, \extrinsic} \\
+  \label{eq:extrinsic}\extrinsic &\equiv \tup{\xttickets, \xtdisputes, \xtpreimages, \xtassurances, \xtguarantees}
+\end{align}
+
+头部是一组元数据，主要用于对区块链祖先及本次转换的操作数与结果进行密码学引用。作为不可变且\emph{先验}已知的对象，它被假定在块转换的所有功能分量中均可用。链下输入数据被划分为如下若干部分：
+
+\begin{description}
+  \item[tickets] “票据”，用于管理“由谁获得出块许可”的验证人选择机制。记为 $\xttickets$。
+  \item[preimages] “原像”，即为使负载可按需获取而当前请求提供的静态数据。记为 $\xtpreimages$。
+  \item[reports] “报告”，即新近完成的负载之报告，其正确性由特定验证人担保。记为 $\xtguarantees$。
+  \item[availability] “可用性保证”，各验证人就其已正确接收并在本地存储的负载输入数据所作的保证。记为 $\xtassurances$。
+  \item[disputes] 与验证人之间对报告有效性的争议相关的信息。记为 $\xtdisputes$。
+\end{description}
+
+\subsection{状态}
+
+我们的状态可在逻辑上划分为若干基本独立的片段。这既可避免在协议描述中产生视觉噪音，又有助于形式化那些可\emph{同时}计算（即可并行化）的计算元素。因此，我们将“完整状态” $\thestate$ 与其分片元组宣告等价：
+\begin{align}\label{eq:statecomposition}
+  \thestate &\equiv \tup{\authpool, \recent, \lastaccout, \safrole, \accounts, \entropy, \stagingset, \activeset, \previousset, \reports, \thetime, \authqueue, \privileges, \disputes, \activity, \ready, \accumulated}
+\end{align}
+
+概括而言，$\accounts$ 是处理\emph{服务}的状态片段；在 \Jam 中它与黄皮书中的（智能合约）\emph{账户}类似，后者亦是 \emph{YP} 的以太坊中唯一的状态。具有某些特权地位的服务身份记录在 $\privileges$。
+
+在 \Jam 链上构建与维护的经济参与者集合——验证人——记录于 $\activeset$，其历史归档于 $\previousset$，候补排队于 $\stagingset$。所有与这些密钥的确定相关的其他状态位于 $\safrole$。请注意，这有别于 \emph{YP} 的工作量证明：后者基本无状态，且该集合并不被枚举，而是隐含地限定为那些能在 \textsc{sha}\oldstylenums{2}-\oldstylenums{256} 哈希上找到部分碰撞、并因此具备足够算力的参与者。链上熵池保存在 $\entropy$。
+
+我们的状态还跟踪每个“核心”的两方面：$\authpool$——在报告上链时，核心上的工作必须满足的授权要求——及填充该要求的队列 $\authqueue$；同时还跟踪 $\reports$——各核心当前指派的\emph{报告}，其对应\emph{工作包}的可用性尚需经超多数验证人确认。
+
+最后，最近区块的细节与时间槽索引分别记录于 $\recenthistory$ 与 $\thetime$。已就绪待累积的工作报告与近期已被累积的工作包分别记录于 $\ready$ 与 $\accumulated$。裁决记录于 $\disputes$，而验证人统计则记录于 $\activity$。
+
+\subsubsection{状态转换依赖图}
+
+与 \emph{YP} 类似，我们将 $\transitionstate$ 指定为：用先验状态与区块来表述所有后验状态项的结果。为便于实现进行并行化，我们尽量将依赖图的深度最小化。整体依赖图如下：
+\begin{align}\label{eq:transitionfunctioncomposition}
+  \thetime' &\prec \theheader \\
+  \recenthistorypostparentstaterootupdate &\prec \tup{\theheader, \recenthistory} \label{eq:betadagger} \\
+  \safrole' &\prec \tup{\theheader, \thetime, \xttickets, \safrole, \stagingset, \entropy', \activeset', \disputes'} \\
+  \entropy' &\prec \tup{\theheader, \thetime, \entropy} \\
+  \activeset' &\prec \tup{\theheader, \thetime, \activeset, \safrole} \\
+  \previousset' &\prec \tup{\theheader, \thetime, \previousset, \activeset} \\
+  \disputes' &\prec \tup{\xtdisputes, \disputes} \\
+  \reportspostjudgement &\prec \tup{\xtdisputes, \reports} \label{eq:rhodagger} \\
+  \reportspostguarantees &\prec \tup{\xtassurances, \reportspostjudgement} \label{eq:rhoddagger} \\
+  \reports' &\prec \tup{\xtguarantees, \reportspostguarantees, \activeset, \thetime'} \label{eq:rhoprime} \\
+  \justbecameavailable^* &\prec \tup{\xtassurances, \reportspostjudgement} \\
+  \tup{\ready', \accumulated', \accountspostxfer, \privileges', \stagingset', \authqueue', \lastaccout', \accumulationstatistics} &\prec \tup{\justbecameavailable^*, \ready, \accumulated, \accountspre, \privileges, \stagingset, \authqueue, \thetime, \thetime'} \label{eq:accountspostxfer} \\
+  \recenthistory' &\prec \tup{\theheader, \xtguarantees, \recenthistorypostparentstaterootupdate, \lastaccout'} \label{eq:betaprime} \\
+  \accountspostpreimage &\prec \tup{\xtpreimages, \accountspostxfer, \thetime'} \label{eq:accountspostpreimage} \\
+  \authpool' &\prec \tup{\theheader, \xtguarantees, \authqueue', \authpool} \\
+  \activity' &\prec \tup{\xtguarantees, \xtpreimages, \xtassurances, \xttickets, \thetime, \activeset', \activity, \theheader, \accumulationstatistics}\!\!\!\!\!\!\!\!
+\end{align}
+
+仅有的同步勾连通过带匕首上标的中间分量可见，其定义见式 \ref{eq:betadagger}, \ref{eq:rhodagger}, \ref{eq:rhoddagger}, \ref{eq:rhoprime}, \ref{eq:accountspostxfer}, \ref{eq:betaprime} 与 \ref{eq:accountspostpreimage}。后两者在依赖图中标记了合并与汇入，具体意味着：可用性相关的链下输入可被完全处理、且工作累积可先于“原像查询链下输入并入状态”发生。
+
+\subsection{采用哪条历史？}
+
+区块链是一串区块，每个区块都通过包含其父块头的哈希来加密引用某个前序区块，一直追溯到引用创世头的首个区块。我们已默认对创世头 $\theheader^0$ 及其所代表的状态 $\thestate^0$ 达成共识。
+
+通过为任何（有效）“先验状态与区块”的组合定义一个确定性的“单一后验状态”，我们就能为任一给定区块定义出唯一的\emph{规范}状态。通常我们称“拥有最多祖先的区块”为\emph{链头}，其状态为\emph{链头状态}。
+
+理论上可能出现两个都有效的区块却引用同一个父块的情形，这称为\emph{分叉}。这意味着可能同时存在两个不同的链头及各自的状态。虽我们不知有任何方式能彻底杜绝这种可能，但为了系统的可用性，我们必须尽力将其最小化。因此我们力求：
+
+\begin{enumerate}
+  \item\label{enum:wh:minimize} 一般而言，不易形成两个链头。
+  \item\label{enum:wh:resolve} 若形成了两个链头，应能快速收敛为单一链头。
+  \item\label{enum:wh:finalize} 能识别出一个“距链头不久远”的区块，我们对其“将永续地属于区块链历史”的置信度极高。区块一旦被如此识别，我们称其被\emph{最终确定}（finalized），该属性自然向其所有祖先扩展。
+\end{enumerate}
+
+这些目标通过两种共识机制的组合来达成：\emph{Safrole} 负责（不一定无分叉的）链式扩展；\emph{Grandpa} 负责将某段扩展“最终确定”为规范历史。因此，前者实现第 \ref{enum:wh:minimize} 点，后者实现第 \ref{enum:wh:finalize} 点，两者共同支撑第 \ref{enum:wh:resolve} 点。详见第 \ref{sec:blockproduction} 节与第 \ref{sec:grandpa} 节。
+
+尽管 Safrole（通过密码学、经济学与“共同时间”等）在很大程度上限制了分叉，有时我们仍可能\emph{有意}分叉，因为我们已知某段链式扩展必须回滚。常规运行中这不应发生，但我们不能排除恶意或故障节点的可能。因此，我们将“包含某个被\emph{任意其他}区块状态标注为无效的数据之区块”的扩展定义为必须回滚的扩展（见第 \ref{sec:disputes} 节了解实现方式）。我们进一步要求 Grandpa 不得最终确定包含此类区块的扩展。更多细节见第 \ref{sec:bestchain} 节。
+
+\subsection{时间}\label{sec:commonera}
+
+我们假定对用于出块与导入的“时间”已有预先共识。尽管在 Polkadot 中这不是显式假设，但诸如 \textsc{ntp} 协议与网络等务实且具韧性的方案是存在的。我们仅以一种方式使用该假设：若区块的时间槽在未来，则它应被暂时视为无效。具体规范见第 \ref{sec:blockproduction} 节。
+
+形式化地，我们将时间定义为自 \Jam\emph{共同纪元}起经过的秒数：即 2025 年 1 月 1 日 12:00 \textsc{utc}。\footnote{晚于 Unix 纪元 1,735,732,800 秒。} 选择 \textsc{utc} 正午可确保：自共同纪元起的任意 24 小时整数倍时刻，所有主要时区都处于同一日期。该值记为 $\wallclock$。
+
+\subsection{最佳区块}
+
+在识别出若干有效区块后，我们必须确定哪个应被视为“最佳”区块，即我们相信它最有可能出现在所有未来 \Jam 链之中、且最\emph{新近}的那个。最简单、最稳妥的做法是参考 Grandpa 最终性机制：它能给出一个我们极有信心\emph{将保持}为任意未来链头祖先的区块。
+
+然而，为降低“结果区块最终不在规范链中”的风险，Grandpa 通常会返回一个比最新出块略旧的区块（在常规运行中，现网经验表明多为滞后 1–2 个块）。在很多场景下，我们宁愿承担“最终不在规范链中”的风险，以换取更低的时延。比如：我们正要出块，需要决定其父块；或我们需向某个依赖 \Jam 状态的下游应用推测更“新”的状态。
+
+在这些情形下，我们将“最佳区块”定义为“最佳链的链头”，而“最佳链”的定义见第 \ref{sec:bestchain} 节。
+
+\subsection{经济学}
+
+本文描述的是一个“密码—经济”系统：即结合密码学与经济学/博弈论，以提供自我主权的数字服务。为编码与操纵经济激励，我们定义了系统原生的代币，本文中简记为 \emph{tokens}。
+
+代币数量通常称为\emph{余额}，其属于余额集合 $\balance$，该集合与“小于 $2^{64}$ 的自然数”完全等价（即编程语境中的无符号 64 位整数）。形式化地：
+\begin{align}\label{eq:balance}
+  \balance \equiv \Nbits{64}
+\end{align}
+
+尽管与本文不直接相关，我们假定存在一个“以 $10^{9}$ 代币为单位”的标准命名计价单位。这与以太坊（$10^{18}$）、Polkadot（$10^{10}$）与其试验性“表亲” Kusama（$10^{12}$）都不同。
+
+余额受限于 $2^{64}$ 之下，意味着 \Jam 中代币总量永不可能超过约 $18\times10^{9}$（每枚可细分至 $10^{-9}$）。我们预期实际发行总量将远小于此上限。
+
+我们进一步假设若干以代币计价的常量\emph{价格}为已知，但具体数值留待后续工作确定：
+
+\begin{description}\label{eq:prices}
+  \item[$\Citemdeposit$] 映射中单个条目所隐含的额外最低余额。
+  \item[$\Cbytedeposit$] 映射中每个数据八位字节所隐含的额外最低余额。
+  \item[$\Cbasedeposit$] 单个服务所隐含的最低余额。
+\end{description}
+
+\subsection{虚拟机与 Gas}\label{sec:virtualmachineandgas}
+
+本文假定一种\emph{Polkadot 虚拟机}（\textsc{pvm}）。该虚拟机基于 \textsc{risc-v} 指令集结构，具体为 \textsc{rv}\oldstylenums{64}\textsc{em} 变体，是我们在状态转换函数中引入“无许可逻辑”的基础。
+
+\textsc{pvm} 可与黄皮书定义的 \textsc{evm} 类比，但更为简洁：缺少繁复的密码学指令与环境交互指令。整体而言它更少“主观看法”，因为它改造的是一个预存的一般用途设计（\textsc{risc-v}），并针对我们的需求做了优化。得益于此，\textsc{pvm} 与 \textsc{risc-v} 保持本质兼容，我们可直接受益于成熟工具链（如 \textsc{llvm}）与语言（Rust、C++ 等）。同时，\textsc{risc-v} 与 \textsc{pvm} 共享的“指令集简洁性”、64 位寄存器宽度、活跃寄存器数量（13）与小端序，使其非常适合在通用硬件架构上实现高效的重编译器。
+
+\textsc{pvm} 的完整定义见附录 \ref{sec:virtualmachine}。为提供上下文，我们简述其基本调用函数 $\Psi$：它对一台以若干寄存器（$\sequence[13]{\pvmreg}$）与 \textsc{ram}（$\ram$）初始化、并在至多某一 gas 量（$\gas$，近似与时间成正比的计算步数）下执行后的 \textsc{pvm} 实例，计算其结果状态：
+\begin{equation}
+  \Psi\colon
+  \tuple{\,
+    \begin{alignedat}{3}
+      &\blob,\,\ \ \pvmreg,\,\ \ &&\gas,\,\\
+      &\!\sequence[13]{\pvmreg},\,\ \ &&\ram\\
+    \end{alignedat}
+  \,}
+  \to
+  \tuple{\,
+    \begin{aligned}
+      &\set{\halt, \panic, \oog} \cup \set{\fault,\host} \times \pvmreg,\\
+      &\pvmreg,\ \ \signedgas,\ \ \sequence[13]{\pvmreg},\ \ \ram
+    \end{aligned}
+  \,}
+\end{equation}
+
+我们将与时间成比例的计算步数称为 \emph{gas}（与 \emph{YP} 相似），并将其限制为 64 位量。我们可用 $\gas$ 或 $\signedgas$ 对其限界：前者作为先验实参（已知为正），后者作为结果（为负表示曾尝试超限执行）。在 \textsc{pvm} 语境中，通常以 $\gascounter \in \gas$ 表示 gas：
+\begin{equation}\label{eq:gasregentry}
+  \signedgas \equiv \Z_{-2^{63}\dots2^{63}}\ ,\quad
+  \gas \equiv \Nbits{64}\ ,\quad
+  \pvmreg \equiv \Nbits{64}
+\end{equation}
+
+一个重要但实现相关的细节是：无论其他形参为何，计算 $\Psi(\dots, \gascounter, \dots)$ 的\emph{最大}计算时间应近似正比于 $\gascounter$。
+
+\textsc{pvm} 是一个非常简单的 \textsc{risc} \emph{寄存器机}，因此拥有 13 个寄存器，每个为 64 位自然数（$< 2^{64}$），记为 $\pvmreg$。\footnote{比 \textsc{risc-v} 的 16 个少 3 个；不过编译器产出的程序通常用到的也正好是 13 个，因为其中 2 个保留给操作系统，另 1 个固定为零。} 在 \textsc{pvm} 语境中，$\registers \in \sequence[13]{\pvmreg}$ 通常表示寄存器组。
+\begin{align}\label{eq:pvmmemory}
+  \ram &\equiv \tuple{
+    \isa{\ram¬value}{\blob[2^{32}]},
+    \isa{\ram¬access}{\sequence[p]{\set{\text{W}, \text{R}, \none}}}
+  }\,,\ p = \frac{2^{32}}{\Cpvmpagesize}\\
+  \Cpvmpagesize &= 2^{12}
+\end{align}
+
+\textsc{pvm} 假设一个简单的分页 \textsc{ram}：32 位可寻址的字节，分页大小 $\Cpvmpagesize = 4096$ 字节，每页可为“只读/可写/不可访问”。\textsc{ram} 的定义 $\ram$ 含两个分量：值 $\ram¬value$ 与访问权限 $\ram¬access$。若下标时未指明分量，则默认是值分量。在虚拟机语境中，$\memory \in \ram$ 常用以指代 \textsc{ram}：
+\begin{align}
+  \readable{\memory} &\equiv \set{\build{i}{\memory_\ram¬access\subb{\floor{\nicefrac{i}{\Cpvmpagesize}}} \ne \none}} \\
+  \writable{\memory} &\equiv \set{\build{i}{\memory_\ram¬access\subb{\floor{\nicefrac{i}{\Cpvmpagesize}}} = \text{W} }}
+\end{align}
+
+我们为 \textsc{ram} $\memory$ 定义两个索引集合：$\readable{\memory}$ 可读索引集合；$\writable{\memory}$ 可写索引集合。
+
+\textsc{pvm} 的调用在结果元组首项给出退出原因：
+\begin{itemize}
+  \item 正常终止（显式 halt 指令），$\halt$；
+  \item 异常终止（异常情况），$\panic$；
+  \item gas 耗尽，$\oog$；
+  \item 缺页（访问了不可访问的 \textsc{ram} 地址），$\fault$；其含故障页的地址；
+  \item 尝试推进一次宿主调用，$\host$；这允许在常规 \textsc{pvm} 之外推进并整合一个与上下文相关的状态机。
+\end{itemize}
+
+完整定义见附录 \ref{sec:virtualmachine}。
+
+\subsection{历元与时间槽}
+\label{sec:epochsandslots}
+
+不同于采用工作量证明的 \emph{YP} 以太坊，\Jam 定义了一种权威证明（proof-of-authority）共识机制；被授权的验证人由一组公钥标识，并由 \Jam 所托管系统中的某个\emph{质押}机制决定。质押系统不在本文范围内；我们假定存在一个可用于更新这些密钥的 \textsc{api}，而质押逻辑将按需引入并使用该 \textsc{api}。
+
+Safrole 机制将自创世起的时间划分为固定长度的\emph{历元}（epoch），每个历元再分为 $\Cepochlen = 600$ 个等长的时间\emph{槽}（slot），每槽长度 $\Cslotseconds = 6$ 秒。于是每历元时长 $\Cepochlen\cdot\Cslotseconds = 3600$ 秒，即一小时。
+
+这个 6 秒槽期代表 \Jam 区块之间的最小间隔。通过 Safrole，我们力求严格最小化两类分叉：同槽争用（同一 6 秒内产生两个有效块）与跨槽争用（不同槽内、但同一父块下产生两个有效块）。
+
+在标识时间槽索引时，我们采用“小于 $2^{32}$ 的自然数”（即 32 位无符号整数），表示自 \Jam 共同纪元起经过的“6 秒槽”的数量。为此我们引入集合 $\timeslot$：
+\begin{align}\label{eq:time}
+  \timeslot \equiv \Nbits{32}
+\end{align}
+
+这意味着本协议的寿命上限大致延续到 2840 年 8 月中旬——以人类当前的发展速度而言，绰绰有余。
+
+\subsection{核心模型与服务}\label{sec:coremodelandservices}
+
+在黄皮书的以太坊中，当定义由全网参与者共同维护并扩展的状态机时，默认\emph{所有}完整节点都要执行\emph{所有}计算。这种“人人做一切”的方式可称为\emph{链上共识模型}。它不可扩展，因为网络在共识内能处理的逻辑量受限于“任何单机在给定时间内能执行的上限”。
+
+\subsubsection{核心内共识}
+本文通过引入第二种计算模型来实现可扩展性，我们称之为\emph{核心内共识模型}。在该模型中、且在常态下，只有网络的\emph{子集}负责实际执行某项计算，并向其他参与者保证其所依赖输入数据的可用性。利用此点，并假设验证人节点具备一定的并行能力，我们就能让“在共识内完成的计算量”随网络规模扩展，而非受限于单机算力。我们预期：与一台全速运行虚拟机的单机相比，网络在“核心内”可执行的计算量可超过其 300 倍。
+
+由于核心内共识\emph{并非}由全网节点共同执行/验证，我们需用其它方式来充足地确信：计算结果是正确的，且用于判定正确性的相关数据在实际可用期内是可获得的。我们借助一个三阶段的密码—经济博弈来实现，称为\emph{担保}、\emph{保证}、\emph{审计}，以及在必要时的\emph{裁决}。对应地，它们为“提出的计算不正确”附加了巨大经济成本；为“计算输入在一段时间内可被获取”提供充足把握；最终为“将会有我们期望诚实的一方检查计算正确性（并据此强制第一阶段的担保）”提供充足把握。
+
+所有核心内执行必须可被任何已同步到“已最终确定链段”的节点复现。因此，核心内执行被设计为尽可能\emph{无状态}：其所需仅包括服务的“精炼代码”、授权器代码，以及执行期间所进行的全部原像查询。
+
+当工作报告上链时，会指定一个特定区块，称为\emph{查询锚点}（lookup-anchor）。正确行为要求该锚点位于已最终确定的链中，且足够新近；两者均可被证明，因而可用于共识协议。
+
+相关流水线将在后文对应章节中详述。
+
+\subsubsection{关于服务与账户}
+
+在 \emph{YP} 以太坊中，账户有两类：\emph{合约账户}（其行为由账户所关联的代码与状态决定，且为确定性）与\emph{普通账户}（作为外部数据进入世界状态的“闸门”，由某个秘密的掌握来控制）。在 \Jam 中，所有账户均为\emph{服务账户}。它们像以太坊的合约账户一样，具有余额、代码与状态；但由于不由私钥控制，它们不需要 nonce。
+
+于是问题来了：外部数据如何被送入 \Jam 的世界状态？进一步地，如果不是通过对交易签名者账户扣款，那总体的支付如何发生？第一个问题的答案在于：我们的服务定义\emph{包含多个}代码入口，一个用于\emph{精炼}，另一个用于\emph{累积}。前者类似“高性能无状态处理器”，可接收任意输入，并将其提炼为更小的数据量，与元数据一同构成\emph{摘要}；后者则更偏状态性，提供访问某些链上功能的能力，包括转账以及调用其他服务的代码。更偏状态的一面使其更贴近以太坊合约账户的代码。
+
+理解 \Jam 如何拆分服务代码，即理解其关于通用性与可扩展性的根本主张。所有链外数据都会送至服务的“精炼代码”。该代码不在\emph{链上}执行，而是在\emph{核心内}执行。因此，累积代码与以太坊的合约账户一样受相同的可扩展性约束，而精炼代码在链下执行，不受此约束。这使 \Jam 服务能在输入规模与计算复杂度上实现巨幅扩展。
+
+尽管精炼与累积处于不同性质的共识环境，二者\emph{均}由同一验证人集合成员执行。通过奖励与惩罚，\Jam 协议确保“核心内执行”的密码—经济安全性可与“链上执行”相当；两者主要差别在于“可扩展性”与“同步性”。
+
+至于付费机制，\Jam 基于 Polkadot 的 Agile Coretime 引入新的抽象。在以太坊的“交易模型”中，“账户授权机制”与“购买区块空间的机制”在一定程度上合一，并都依赖签名来标识单一“交易发起者账户”。在 \Jam 中，二者被分离，不存在“交易发起者”的概念。
+
+取代以太坊用于购买与计量区块空间的 gas 模型，\Jam 引入 \emph{核心时间}（coretime）的概念：它被预先购买并分配给一个授权代理。核心时间与 gas 类似，都是你使用 \Jam 时所消耗的基础资源。其采购不在本文范围内，预计由某条系统平行链管理；该链运行于一个拥有若干核心、专用于系统服务的“平行链服务”之上。授权代理允许外部实体向某个服务提供输入，而不必像以太坊那样通过交易签名去标识自身。详见第 \ref{sec:authorization} 节。

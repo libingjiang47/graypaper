@@ -1,0 +1,33 @@
+\section{授权}\label{sec:authorization}
+
+我们此前在第 \ref{sec:coremodelandservices} 节中已经讨论过工作包（work-packages）与服务（services）的模型，但尚未深入讨论某些 \emph{coretime} 资源究竟是如何被分配给某个工作包及其关联服务的。在 \emph{YP} Ethereum 模型中，底层资源——Gas——是在链上引入的瞬间采购的，而购买者始终是描述待执行工作（即交易）的数据作者。相反，在 Polkadot 中，底层资源——平行链插槽（parachain slot）——通常一次性以大额抵押的方式采购，租期约为 24 个月，采购方（通常为某个平行链团队）往往与实际撰写待执行工作（即平行链区块）的作者并无直接关系。
+
+基于灵活性的原则，我们希望 \Jam 能够同时支持以太坊式与波卡式的多种交互模式。为此，我们引入 \emph{授权系统（authorization system）}，用于将某些 coretime 资源的使用意图与具体的工作负载规范及提交解耦。这样，我们即可将 coretime 的购买与分配从其所执行的具体工作中剥离，从而同时支持以太坊式与波卡式的交互模式。
+
+\subsection{授权者与授权}
+
+授权系统涉及三个关键概念：\emph{授权者（Authorizers）}、\emph{令牌（Tokens）}与\emph{痕迹（Traces）}。令牌是一段不透明数据，随工作包一同提交，用于证明该工作包应当被授权。痕迹同样是一段不透明数据，用于描述一次成功授权的特征。而授权者则是一段逻辑，在预先规定的、众所周知的计算限制下执行，用以判定某个包含其令牌的工作包是否被授权在某个特定核心上执行，并在成功时生成一个痕迹。
+
+授权者由其 \textsc{pvm} 代码的哈希与配置 blob 的拼接来标识；配置 blob 与令牌、痕迹一样，均是不透明数据，但对 \textsc{pvm} 代码而言有特定意义。工作包是否被授权的判定过程并不由链上逻辑负责，而是完全发生在内核执行过程中，因此在第 \ref{sec:packagesanditems} 节中讨论。然而，链上逻辑必须识别每个核心分配的授权者集合，以验证某个工作包确实有权使用该资源。接下来我们将定义该子系统。
+
+\subsection{池与队列}
+
+我们将某一特定核心 $\¬core$ 的授权者集合定义为\emph{授权池}（authorizer pool）$\authpool[\¬core]$。为了维护该值，每个核心还需跟踪一段额外状态：该核心当前的\emph{授权队列}（authorizer queue）$\authqueue[\¬core]$，用于填充池。形式化地：
+\begin{equation}
+  \label{eq:authstatecomposition}
+  \authpool \in \sequence[\Ccorecount]{\sequence[:\Cauthpoolsize]{\hash}}\ , \qquad
+  \authqueue \in \sequence[\Ccorecount]{\sequence[\Cauthqueuesize]{\hash}}
+\end{equation}
+
+注意：状态中的 $\authqueue$ 仅能通过来自某个具备相应特权服务的累积逻辑中的外生调用来更改。
+
+区块的状态转换涉及将一个新的授权者从队列放入池中：
+\begin{align}
+  &\forall \¬core \in \coreindex : \authpool'\subb{\¬core} \equiv {\overleftarrow{F(\¬core) \append \cyclic{\authqueue'\subb{\¬core}\subb{\H_\¬timeslot}}}}^{\Cauthpoolsize} \\
+  &F(\¬core) \equiv \begin{cases} 
+    \authpool[\¬core] \seqminusl \set{(g_\xg¬workreport)_\wr¬authorizer} &\when \exists g \in \xtguarantees : (g_\xg¬workreport)_\¬core = \¬core \\ 
+    \authpool[\¬core] & \otherwise 
+  \end{cases}
+\end{align}
+
+由于 $\authpool'$ 依赖于 $\authqueue'$，因此在实际计算中，这一步必须在累积阶段之后执行，因为此时 $\authqueue'$ 已经被定义。需要注意的是，我们利用担保外部交易 $\xtguarantees$ 来移除当前区块中已用于证明某个被担保工作包的最旧授权者。更详细的定义见公式 \ref{eq:guaranteesextrinsic}。

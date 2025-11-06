@@ -1,0 +1,181 @@
+\section{审计与裁决}\label{sec:auditing}
+
+审计与裁决系统在理论上与 \textsc{Elves} 中的机制等价，详见 \cite{cryptoeprint:2024/961}。关于该机制的完整安全性分析，请参阅该文。术语上有所差异：彼文中的 \emph{backing}、\emph{approval} 与 \emph{inclusion} 分别对应于本文中的保障（guaranteeing）、审计（auditing）与累积（accumulation）。
+
+%\Jam 的主要差异在于扩展了可用性系统的用途，使其不仅服务于审计，还允许在核心内作为副作用有意生成的数据在后续阶段被利用，而无需将其重新插入到可用性系统中。这为导入更多此类数据向可用性系统\emph{注入}了额外带宽。为最大化该改动的价值，进入可用性系统的数据过期时间被延长至 28 天，远超审计所需的时长。
+
+\subsection{概览}
+
+审计过程要求每个节点对其自身从每个 \Jam 链区块中新近变为可用（即来自 $\justbecameavailable$）的工作报告集合中，按一种“随机但可验证确定”的方式选择、抓取、评估并出具裁决。在进行任何评估之前，节点需要声明并证明其审计需求。此后在一些共同的时间节点上，如果某些已声明的意向在合理时间内未匹配到正面裁决，或出现负面裁决，该节点需要扩大其需评估的工作报告集合。这些扩容事件称为“批次（tranche）”。
+
+若在任一时间节点，某个工作报告所有已声明的意向均匹配到了正面裁决，则该工作报告被视为已\emph{审计}。当某区块中新近变为可用的所有工作报告均被审计，则该区块被视为\emph{已审计}。节点对某区块进行最终性投票之前的一个先决条件，是其必须认为该区块已被审计。注意：虽然最终会对“区块是否已审计”达成共识，但在区块被最终确定时，可能还未达成该共识。这并不影响本系统的加密经济保证。
+
+在正常情况下，一个工作报告最终不会出现负面裁决，审计阶段也不会产生直接后果。在少见的负面裁决出现时，可能发生以下几种情形：若仍有超过 $\twothirds\Cvalcount$ 的正面裁决，则给出负面裁决的验证者可能因“浪费时间”受到惩罚；若负面裁决超过 $\onethird\Cvalcount$，那么包含该工作报告的区块将被加入封禁列表（ban-list），该区块及其所有后代将被忽略并禁止在其上继续构建。在所有情形下，一旦票数足够，区块作者即可构造裁决外部交易并上链以标注结果。详见第 \ref{sec:disputes} 节。
+
+所有公告与裁决将连同描述签名材料的元数据一并发布给所有验证者。在接收到足够可靠的信息后（下文以 $J$ 与 $A$ 表示的视角），验证者应相应更新其本地认知。
+
+\subsection{数据抓取}
+
+对每个需要审计的工作报告，我们使用其纠删码根（erasure-root）向足够多的担保者请求纠删码分片。对每个担保者，我们抓取三类条目（在良好的网络协议下可通过一次请求完成）：分别对应“工作包超分片（work-package super-chunks）”、“自证导入超分片（self-justifying imports super-chunks）”与“外部交易片段超分片（extrinsic segments super-chunks）”。
+
+我们通过验证其哈希是否等于工作报告中工作包规范字段包含的哈希，来验证工作包重建是否正确。我们通过验证各外部交易片段的哈希是否分别等于相应工作项中记录的哈希，来验证外部交易片段。
+
+最后，对于每个导入片段（imported segment），我们通过检查其后的“拼接后置证明”（即连接的片段之后紧随的证明）来验证：每个片段的哈希均被包含在相应工作项引用的 Merkle 根与位置索引中。
+
+导出片段（exported segments）无需以同样方式重建，而应与保障阶段一致，即通过执行 Refine 逻辑确定。
+
+工作报告中工作包规范字段的所有条目均应基于上述现已可信的数据重新计算并核验，实质上是复现担保者的步骤以确保正确性。
+
+\subsection{报告选择}
+\label{sec:auditselection}
+
+每个验证者应对其收到的每个有效区块履行审计职责。由于以下逻辑发生在链下，我们不能假定共识，因此在下文中将自己视为索引为 $v$ 的某一特定验证者，并假定我们关注某个近期区块 $\block$，其他术语均对应该区块所隐含的状态转换：例如，$\reports$ 为该区块之前的核心分配，$\activeset$ 为其之前的验证者集合，$\header$ 为其区块头，等等。实际上，所有考虑必须对所有区块复用，且可能同时对多个区块并行进行。
+
+\newcommand*{\local¬reports}{\mathbf{q}}
+\newcommand*{\local¬seed}{s}
+\newcommand*{\local¬tranche}{\mathbf{a}}
+
+我们将可能需要审计的工作报告序列记为 $\local¬reports$，其长度等于核心数量；它将核心索引映射为“该核心上刚变为可用的待审计工作报告”，若无，则为 $\none$。形式化为：
+\begin{align}\label{eq:auditselection}
+  \local¬reports &\in \sequence[\Ccorecount]{\optional{\workreport}} \\
+  \local¬reports &\equiv \sq{\build{
+    \begin{rcases}
+      \reports\subb{\cX}_\rs¬workreport &\when \reports\subb{\cX}_\rs¬workreport \in \justbecameavailable \\
+      \none &\otherwise
+    \end{rcases}
+  }{
+    \cX \orderedin \coreindex
+  }}
+\end{align}
+
+我们以专门构造的、可验证随机量 $\local¬seed\sub{0}$ 来定义初始审计批次：
+\begin{align}
+  \label{eq:initialaudit}
+  \local¬seed\sub{0} &\in \bssignature{
+    \activeset\subb{v}_\vk¬bs
+  }{
+    \Xaudit \concat \banderout{\H_\¬vrfsig}
+  }{
+    \sq{}
+  } \\
+  \Xaudit &= \token{\$jam\_audit}
+\end{align}
+
+随后，我们通过对十个核心进行可验证随机选择，来定义非空的初始待审计集合 $\local¬tranche\sub{0}$：
+\begin{align}
+  \local¬tranche\sub{0} &= \set{\build{\wrcX}{\wrcX \in \mathbf{p}\subrange{}{10}, \wrX \ne \none}} \\
+  \where \mathbf{p} &= \fyshuffle{\sq{\build{\tup{\cX, \local¬reports\sub{\cX}}}{\cX \orderedin \coreindex}}, \banderout{\local¬seed\sub{0}}}
+\end{align}
+
+自每个新时间槽开始后的每 $\Ctrancheseconds = 8$ 秒，开启一个新批次，我们据此决定是否需要追加审计。此时的条目记作第 $n$ 个批次的 $\local¬tranche\sub{n}$。形式化为：
+\begin{equation}
+  \using n = \ffrac{\wallclock - \Cslotseconds\cdot\H_\¬timeslot}{\Ctrancheseconds}
+\end{equation}
+
+新批次可能从 $\local¬reports$ 中纳入条目，原因有二：其一，出现了负面裁决；其二，上一批次的裁决数量少于该批次的公告数量。第一种情况下，验证者总是被要求对该工作报告出具裁决；第二种情况下，需要构造一个新的“特定用途 \textsc{vrf}”，以决定我们是否需要进行审计与裁决。
+
+无论何种情形，我们都会发布一个签名公告（\emph{announcement}），声明我们认为自己有义务审计的核心集合；公告中包含用于选择它们的 \textsc{vrf} 签名证据，以及上一批次中未匹配到裁决的他人公告，以使所有验证者都能验证我们的公告。\emph{发布公告应被视为一份契约：无论后续出现何种信息，都应完成相应审计。}
+
+形式化地，对于每个批次 $n$，我们确保公告声明被发布并分发给所有验证者，同时附上我们的验证者索引 $v$、证据 $\local¬seed\sub{n}$ 以及所有签名数据。验证者的公告声明必须属于集合 $S$：
+\begin{align}
+  \label{eq:announcement}
+  S &\equiv \edsignature{\activeset\subb{v}_\vk¬ed}{\Xannounce \append n \concat \mathbf{x}\sub{n} \concat \blake{\H}} \\
+  \where \mathbf{x}\sub{n} &= \encode{\set{\build{\encode[2]{\cX} \concat \blake{\wrX}}{\wrcX \in \local¬tranche\sub{n}}}}\\
+  \Xannounce &= \token{\$jam\_announce}
+\end{align}
+
+我们将 $A\sub{n}$ 定义为我们对“每个工作报告（由其核心标识）在第 $n$ 批次应由哪些验证者审计”的认知集合。该集合来源于其他验证者的公告（如上所定义）。只有当 $n$ 成为当前批次时，它才能被正确评估。对于我们自身的审计义务，我们拥有绝对知识。
+\begin{align}
+  A\sub{n}: \workreport &\to \protoset{\valindex}
+\end{align}
+
+进一步地，我们定义 $J_\top$ 与 $J_\bot$，分别表示“我们已知对某工作报告给出正面裁决的验证者索引集合”与“给出负面裁决的验证者索引集合”，均按工作报告（由其核心标识）映射。
+\begin{align}
+  J_\bool: \workreport \to \protoset{\valindex}
+\end{align}
+
+对于首批次之后的批次，我们依据“我们已知需要进行审计但尚未见到其裁决的验证者数量”，来定义 $\local¬tranche\sub{n}$。信息延迟可能改变 $\local¬tranche\sub{n}$，若发生变化，节点应重新评估并相应行动。
+
+因此，我们通过一个新的 \textsc{vrf}，针对“缺席（no-show）验证者”集合来定义后续批次的 $\local¬tranche\sub{n}$：
+\begin{align}
+  \nonumber\forall n > 0:&\\
+  \label{eq:latertranches}
+  \ \local¬seed\sub{n}(\wrX) &\in \bssignature{\activeset\subb{v}_\vk¬bs}{\Xaudit \concat \banderout{\H_\¬vrfsig}\concat\blake{\wrX}\append n}{\sq{}} \\
+  \ \local¬tranche\sub{n} &\equiv \set{ \build{ \wrX }{\textstyle\frac{\Cvalcount}{256\Cauditbiasfactor}\banderout{\local¬seed\sub{n}(\wrX)}\sub{0} < m\sub{n}, \wrX \in \local¬reports, \wrX \ne \none }}\!\!\!\!\\
+  \nonumber \where m\sub{n} &= \len{A_{n - 1}(\wrX) \setminus J_\top(\wrX)}
+\end{align}
+
+我们取偏置因子 $\Cauditbiasfactor = 2$，它表示：若上一批次中存在一个缺席者，我们期望本批次将有多少验证者被要求就该工作报告出具裁决。根据 \cite{cryptoeprint:2024/961} 的建模，这一取值是最优的。
+
+后续批次的审计需要与首次类似地进行公告。若在收到新信息后审计需求下降（例如某个先前“缺席”的验证者发回了正面裁决），则已公告的审计仍应完成并发布裁决；若审计需求上升（例如发现了额外公告但仍无相应裁决），则需公告我们将追加承担的审计任务。
+
+随着时间推移，$n$ 递增，$\local¬tranche\sub{n}$ 逐步确定，从而界定我们的审计职责。我们必须尝试重建所有需审计的工作报告对应的工作包及其必要数据。为此，可向三分之一的验证者请求纠删码分片；也可以向合作的第三方（例如原担保者）直接索取原像作为捷径。
+
+因此，对于任意此类工作报告 $\wrX$，我们可确保能获取到某个候选的工作包编码 $F(\wrX)$：要么通过纠删码分片重建并由其 Merkle 根验证；要么直接来自工作包哈希的原像。我们将该候选 blob 解码为工作包。
+
+除工作包外，我们还假定可以通过与上文相同的方式，从三分之一验证者处请求和重建纠删码分片，来获取与之关联的全部清单（manifest）数据。
+
+随后，我们尝试在核心上复现该报告，从而得到 $e\sub{n}$——一个由核心到评估结果的映射：\vskip -7pt
+\begin{equation}
+  \begin{aligned}
+    \forall \tup{\cX, \wrX} \in \local¬tranche\sub{n} :\ \ &\\[-10pt]
+    e\sub{n}(\cX) \Leftrightarrow &\begin{cases}
+      \wrX = \computereport(p, \cX)\!\!\! &\when \exists p \in \workpackage: \encode{p} = F(\wrX) \\
+      \bot &\otherwise
+    \end{cases}
+  \end{aligned}\!\!
+\end{equation}
+
+注意：若解码失败，则意味着该工作报告无效。
+
+基于该映射，验证者发布一组裁决 $\mathbf{j}\sub{n}$：
+\begin{align}
+  \label{eq:judgments}
+  \mathbf{j}\sub{n} &= \set{\build{
+    \edsigndata{
+      \activeset\subb{v}_\vk¬ed
+    }{
+      \Xvalidif{e\sub{n}(\cX)} \concat \blake{\wrX}
+    }
+  }{
+    \tup{\cX, \wrX} \in \local¬tranche\sub{n}
+  }}
+\end{align}
+
+%我们将某工作包 $\wrX$ 的担保者记为 $\guarantorassignments(\wrX)$（相对某个链头），可由引入该工作报告的祖先区块中的担保外部交易 $\xtguarantees$ 导出。我们对担保外部交易的限制（见第 \ref{sec:accumulation} 节）确保了其唯一性。
+%\begin{equation}
+%\begin{aligned}
+%    \guarantorassignments(\wrX) &\equiv \sq{\build{v}{\tup{s, v} \orderedin a}} \\
+%    \where \tup{\cX, \wrX, a} &\in \xtguarantees \\
+%    \tup{\H, \extrinsic} &\in \ancestors
+%\end{aligned}
+%\end{equation}
+
+所有裁决 $\mathbf{j}_*$ 均应发布给其他验证者，以便其构建 $J$ 的视图；若出现负面裁决，可据此构造 $\xtdisputes$ 外部交易。
+
+我们在两种情形下认为某个工作报告已被审计：要么该报告没有任何负面裁决，且存在某个批次，我们观察到“所有我们认为有义务审计它的验证者”均给出了正面裁决；要么我们观察到其正面裁决数量超过验证者集合的三分之二。
+\begin{align}
+  U(\wrX) &\Leftrightarrow \bigvee\,\abracegroup[\,]{
+    &J_\bot(\wrX) = \emptyset \wedge \exists n : A\sub{n}(\wrX) \subset J_\top(\wrX) \\
+    &\len{J_\top(\wrX)} > \twothirds\Cvalcount
+  }
+\end{align}
+
+当且仅当所有新近变为可用的工作报告均被审计，我们将区块 $\block$ 视为已审计，记作条件 $\isaudited$：
+\begin{align}
+  \isaudited &\Leftrightarrow \forall \wrX \in \justbecameavailable : U(\wrX)
+\end{align}
+
+对于任意区块，我们在 \textsc{Grandpa} 中为其投最终性票之前，必须先判断其已被审计（即 $\isaudited = \top$）。详见第 \ref{sec:grandpa} 节。
+
+此外，我们明确忽略那些“包含某个工作报告的累积，而我们已知至少有 $\onethird$ 的验证者判定其无效”的链。任何包含此类区块的链都不具备继续出块的资格。所谓\emph{最佳区块}，即我们用以构建新区块的那个区块，被定义为：在不包含任何此类被忽略区块的前提下，拥有最多常规 Safrole 区块的链。实现上，这可能要求回退到更早的链头或切换到另一个分叉。
+
+作为区块作者，我们需要包含一个“裁决外部交易”，将裁决签名收集后上链。在“非有效裁决”的情况下（即并未达到“确认有效”的三分之二加一阈值），该外部交易会被包含在“即将对该无效工作报告进行累积”的区块中。该“非有效裁决外部交易”会将该报告从待处理报告集合 $\reports$ 中移除。更多细节见第 \ref{sec:disputes} 节。
+
+%对于未被选择的工作报告，如果节点发现审计流程未能充分完成，也可在后续阶段进行评估。在评估之前，节点会宣布其审计意向，并提供该意向是诚实得出的证明。一旦完成抓取与评估，节点会向所有验证者发布其裁决。
+%
+%从根本上说，此序列是从每个区块中随机选取平均十个报告。然而，它也会受到节点对他人公告与裁决视角的影响。
+%
+%若某报告的正面裁决不足，或公告过多而后续裁决过少，节点最终将决定自行开展审计。
+%
+%若诚实的验证者观察到某份“无效”的裁决，它会优先验证该报告，并在亲自完成验证之前，避免为其区块投最终性票。

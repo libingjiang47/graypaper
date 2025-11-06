@@ -1,0 +1,77 @@
+\documentclass[9pt,oneside]{amsart}
+\input{preamble.tex}
+
+% 只设置中文文本字体，不接管数学/西文
+\usepackage[no-math]{fontspec}
+\usepackage{xeCJK}
+\setCJKmainfont{Noto Serif CJK SC}      % 或机器上已有的中文字体
+\setCJKsansfont{Noto Sans CJK SC}
+\setCJKmonofont{Noto Sans Mono CJK SC}
+
+% 可选：中文断行更自然
+\XeTeXlinebreaklocale "zh"
+\XeTeXlinebreakskip = 0pt plus 1pt
+
+\pagecolor{verydarkgray}
+\color{white}
+\makegpbackground
+
+\begin{document}
+
+\input{text_zh/abstract.tex}
+\begin{center}
+    \includegraphics[width=10cm]{assets/jam-pen-back.png}
+\end{center}
+\vskip10pt
+\maketitle
+
+\setlength{\columnsep}{20pt}
+\begin{multicols}{2}
+
+\input{text_zh/intro.tex}
+\input{text_zh/previous_work.tex}
+\input{text_zh/notation.tex}
+\input{text_zh/overview.tex}
+\input{text_zh/header.tex}
+\input{text_zh/safrole.tex}
+\input{text_zh/recent_history.tex}
+\input{text_zh/authorization.tex}
+\input{text_zh/accounts.tex}
+\input{text_zh/judgments.tex}
+\input{text_zh/reporting_assurance.tex}
+\input{text_zh/accumulation.tex}
+\input{text_zh/statistics.tex}
+\input{text_zh/work_packages_and_reports.tex}
+\input{text_zh/guaranteeing.tex}
+\input{text_zh/assurance.tex}
+\input{text_zh/auditing.tex}
+\input{text_zh/beefy.tex}
+\input{text_zh/best_chain.tex}
+\input{text_zh/discussion.tex}
+\input{text_zh/conclusion.tex}
+\input{text_zh/ack.tex}
+
+\end{multicols}
+
+\newpage
+\appendix
+
+\input{text_zh/pvm.tex}
+\input{text_zh/pvm_invocations.tex}
+\input{text_zh/serialization.tex}
+\input{text_zh/merklization.tex}
+\input{text_zh/utilities.tex}
+\input{text_zh/bandersnatch.tex}
+\input{text_zh/erasure_coding.tex}
+
+\newpage
+\input{text_zh/definitions.tex}
+
+\newpage
+\printbibliography
+
+\newpage \pagestyle{empty} \hbox{}
+\newpage \hbox{}
+\newpage \hbox{}
+
+\end{document}

@@ -1,0 +1,141 @@
+\section{讨论}\label{sec:discussion}
+
+%\subsection{Security Assumptions}\label{sec:security}
+%$\ge \twothirds$ validators honest and live.
+%Short finality stall possible (up to one hour, more likely 12-18 seconds) where reversion possible. Such reversion results in major punishment of at least two validators. No reversion possible after finality.
+
+%\subsection{Parachains and Liveness}
+
+\subsection{技术特征}
+
+综合来看，在我们目标为 1,023 名验证者、每个核心由三名验证者负责、并要求每名验证者每个时间槽平均进行 10 次审计（从而每个工作报告合计 30 次审计）的设定下，\Jam 能够在每个时间槽无信任地处理并整合 341 个工作包。
+
+我们假设节点硬件为一台现代的 16 核 \textsc{cpu}、64\textsc{gb} \textsc{ram}、8\textsc{tb} 次级存储以及 0.5\textsc{g}be 网络。
+
+我们的性能模型假定 \textsc{cpu} 时间大致按如下比例划分：
+
+\begin{center}
+  \begin{tabular}[h]{@{}lll@{}}
+    \toprule
+    & \emph{Proportion} \\
+    \midrule
+    审计（Audits） & $\nicefrac{10}{16}$ \\
+    默克尔化（Merklization） & $\nicefrac{1}{16}$ \\
+    区块执行（Block execution） & $\nicefrac{2}{16}$ \\
+    \textsc{Grandpa} 与 \textsc{Beefy} & $\nicefrac{1}{16}$ \\
+    纠删码（Erasure coding） & $\nicefrac{1}{16}$ \\
+    网络与其他（Networking \& misc） & $\nicefrac{1}{16}$ \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+对网络带宽需求的估计如下：
+\begin{center}
+\begin{tabular}[h]{@{}lll@{}}
+  \toprule
+  吞吐量（Throughput）, \textsc{mb}/slot & \emph{Tx} & \emph{Rx} \\
+  \midrule
+  担保（Guaranteeing） & 106 & 48 \\
+  保障（Assuring） & 144 & 13 \\
+  审计（Auditing） & 0 & 133 \\
+  出块（Authoring） & 53 & 87 \\
+  \textsc{Grandpa} 与 \textsc{Beefy} & 4 & 4 \\
+  \textbf{合计（Total）} & \textbf{304} & \textbf{281} \\
+  \midrule
+  \textbf{隐含带宽（Implied bandwidth）}, \textsc{m}b/s & \textbf{387} & \textbf{357} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+%Guarantor work-package acceptance and report publication represents a mean of 24\textsc{m}b/s download and 16\textsc{m}b/s upload. Guarantor/availability provision represents a mean of 12\textsc{m}b/s of network upload and 8\textsc{m}b/s network download bandwidth. Guarantor/auditing provision adds a further 80\textsc{m}b/s both upload and download in the regular case. Block publication/distribution represents a at most 42\textsc{m}b/s of network upload and download (but in general half of that and download-only), though this is bursty. \textsc{Grandpa} and \textsc{Beefy} may account for a further 4\textsc{m}b/s upload and download. The total mean network bandwidth requirements should therefore be around 158\textsc{m}b/s download and 154\textsc{m}b/s upload.
+因此，一条能够维持 500\textsc{m}b/s 的连接应能留出足够的误差余量与冗余，以服务其他验证者以及部分公共连接，尽管出块传播的突发性意味着验证者最好确保峰值带宽更高。
+
+在这些条件下，我们预期网络提供的数据可用性总体容量为 2\textsc{pb}，且每个节点至多为可用性存储投入 $6$\textsc{tb}。
+
+内存使用的估计如下：
+
+\begin{center}
+  \begin{tabular}[h]{@{}lll@{}}
+    \toprule
+    & \textsc{gb} \\
+    \midrule
+    审计 & 20 & 2 $\times$ 10 个 \textsc{pvm} 实例 \\
+    区块执行 & 2 & 1 个 \textsc{pvm} 实例 \\
+    状态缓存 & 40 & \\
+    其他 & 2 & \\
+    \textbf{合计} & \textbf{64} & \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+%With 11 concurrent \textsc{pvm} instances each using an average of at most 2\textsc{gb} then we would expect 42\textsc{gb} left over for caching the state. Assuming 2\textsc{gb} for node operation, networking and ancillary databases, then 40\textsc{gb} is remaining for caching the most recent state in \textsc{ram}.
+粗略而言，在 Polkadot 中每条平行链在中继链上的平均占用约为 2\textsc{mb}；40\textsc{gb} 的状态可允许在状态中保留约 20,000 条平行链的信息。
+
+\Jam 核心所谓的“虚拟硬件”本质上是一枚常规 \textsc{cpu} 核心，在整个 6 秒时段以常规速度的 25\% 至 50\% 运行，并且通常可进行 2\textsc{mb}/s 的通用 \textsc{i/o}，以及使用至多 2\textsc{gb} 的 \textsc{ram}。该 \textsc{i/o} 包括对 \Jam 链上状态的无信任读取，尽管这些读取可能针对“近期的过去”。该虚拟硬件还提供对半静态的原像查找数据库的无限读取。
+
+每个工作包可以占用这套硬件，在其上以 6 秒为一段执行任意代码，生成至多 48\textsc{kb} 的结果。随后，该工作结果可在同一机器上获得 10ms 的时间——这次没有“外部” \textsc{i/o}，而是对 \Jam 链上状态的完全、即时访问，并可修改该结果所归属的服务。
+
+\subsection{性能示例}
+
+就纯处理能力而言，\Jam 的机器架构能够提供极高水平的同质化无信任计算。然而，\Jam 的核心模型是经典的并行化计算架构；想要充分利用这一架构的解决方案在设计上必须在一定程度上考虑到这一点。因此，在出现具有与现有用例相似语义、并运行在 \Jam 上的用例之前，很难与现有系统进行直接比较。尽管如此，如果我们做出一些假设，仍可给出粗略对比。
+
+\subsubsection{与 Polkadot 的比较}
+当前 Polkadot 至多能够验证 80 条平行链，每条在每 6 秒中执行 1 秒原生计算并进行 5\textsc{mb} 的 \textsc{i/o}。这相当于约 13 倍原生 \textsc{cpu} 的聚合计算性能，以及约 67\textsc{mb}/s 的 24 小时分布式可用性。累积（Accumulation）不在 Polkadot 能力范围内，因而不可比较。
+
+作为对照，在我们的基础模型中，\Jam 应能达到约 85 倍单枚原生 \textsc{cpu} 核的计算负载，以及 682\textsc{mb}/s 的分布式可用性。
+
+%---- Update from here.
+\subsubsection{简单转账}
+我们也可以尝试建模一个简单的每秒交易数（\textsc{tps}），其中每笔交易需要一次签名验证并修改两个账户余额。仍然地，在对其工作机制尚无明确设计之前，我们必须做出假设。我们最朴素的模型是将 \Jam 的核心（即 refinement）仅用于交易验证与账户查询，\Jam 链则持有并修改状态中的余额。由于几乎所有所需的 \textsc{i/o} 都是同步的，这一方案不太可能获得很高性能，但可作为基线。
+
+一个 12\textsc{mb} 的工作包可容纳约 96k 笔交易（按每笔 128 字节计）。然而，一个 48\textsc{kb} 的工作结果在将每条更新编码为一对 4 字节账户索引与 4 字节余额时，仅能编码约 6k 条账户更新，导致每个包限于约 3k 笔交易，或总计 171k \textsc{tps}。这 8 字节在典型情况下或可压缩 1–2 字节，略微提高吞吐。我们预期状态更新（结合高度并行化的默克尔化）可达到每秒 50 万到 100 万次读/写，这意味着约 25 万–35 万 \textsc{tps}，具体取决于瓶颈所在。
+
+一个更精巧的模型是让 \Jam 核心同时负责余额更新与交易验证。我们必须假设状态及对其进行操作的交易能以一定效率在工作包之间进行分区，并且工作包中的 12\textsc{mb} 在交易数据与状态见证数据之间拆分。我们的基础模型预估，一个将账户设为 32 位、按 $2^{10}$ 个账户/页分页、且每笔交易 128 字节的账户系统（假设仅约 1\% 的喂价化账户是有用的）在分区与使用特性允许的情况下，平均可达到 1.4m\textsc{tps} 以上。分区可以采用固定碎片化（本质上分片状态）、旋转式分区模式，或动态分区（需要专门排序）。
+
+有趣的是，我们预计两种模型都不会受计算成为瓶颈，这意味着交易可在不显著影响性能的情况下变得更复杂，例如采用更灵活的密码学或智能合约功能。
+
+\subsubsection{计算吞吐}
+\textsc{tps} 并不适合用于衡量分布式系统的计算性能，因此我们转向另一个更偏计算的基准：\textsc{evm}。以 \emph{YP} Ethereum 为代表的基础网络（即将接近十年）可能是最广为人知的通用去中心化计算示例，是一个合理的标尺。它可维持 1.25M gas/sec 的计算与 \textsc{i/o} 速率，峰值为其两倍。\textsc{evm} 的 gas 度量被设计为与时间成比例，用于预测与约束程序执行。由于两平台在字长、端序、栈/寄存器体系结构与内存模型等方面存在巨大差异，尝试给出 \textsc{pvm} 吞吐与其的具体对比并不容易且难免带有主观性。但我们仍将尝试得出一个合理的区间。
+
+\textsc{evm} gas 不直接对应原生执行，因为它也包含状态读写与交易输入数据，这意味着它能在每秒处理“最多”595 次存储读取、57 次存储写入、以及 1.25M 计算 gas，再加上 78\textsc{kb} 的输入数据，这几项可彼此替代。\footnote{最新的“proto-danksharding”变更允许其接受 87.3\textsc{kb}/s 的“承诺数据（committed-to data）”，但这些数据不能直接用于状态，因此我们在此不纳入说明；即便纳入到输入数据中，对结果影响也很小。}我们找不到关于“存储 \textsc{i/o} 与纯计算”典型占比的分析，因此为作非常保守的估计，假设它四者都做。实际上，我们预计平均每项仅为最大值的 \nicefrac{1}{4}。
+
+我们的实验\footnote{详见 \url{{https://hackmd.io/@XXX9CM1uSSCWVNFRYaSB5g/HJarTUhJA}}；随着更多信息获得将会更新。}显示，在现代高端消费级硬件上，配合高质量的 \textsc{evm} 实现，对纯计算负载（我们具体使用了 Odd-Product、Triangle-Number 以及多个 Fibonacci 实现），可期望达到 100–500 gas/µs 的吞吐。为了与 \textsc{pvm} 做保守比较，我们建议将 \textsc{evm} 代码转译为 \textsc{pvm} 代码，再在 Polka\textsc{vm} 原型下重执行。\footnote{这是保守做法，因为我们未考虑源代码最初被编译为 \textsc{evm} 代码的事实，从而 \textsc{pvm} 机器码会复刻体系结构上的“遗留”，因此很可能是悲观的。例如，\textsc{evm} 中所有算术运算均为 256 位，而 64 位原生 \textsc{pvm} 被迫遵循这一点，即便源代码只需 64 位。}
+
+为了帮助估计 \textsc{evm} gas/µs 的合理下界（例如对更偏内存与 \textsc{i/o} 的负载），我们参考了真实的无许可 \textsc{evm} 部署，看到 Moonbeam 网络（在修正了其运行于“重编译后的 WebAssembly 平台”以及稍显保守的 Polkadot 硬件平台所带来的减速后）意味着约 100 gas/µs 的吞吐。因此我们断言，在计算方面，在现代高端消费级硬件上，1µs 约等价于 100–500 \textsc{evm} gas。\footnote{我们推测这一巨大区间，部分可能来自 \textsc{evm} \textsc{isa} 与典型现代硬件之间的重大体系结构差异。}
+
+基准与回归测试显示，\textsc{pvm} 原型引擎在程序代码每字节约有 5ns 的固定预处理开销；至少对算术密集任务而言，相较 \textsc{evm} 执行，其边际因子为 1.6–2\%，意味着渐近加速约 50–60 倍。对大小为 1\textsc{mb}、预期需约 1 秒计算的机器码而言，编译成本仅占总时间的 0.5\%。\footnote{例如，我们的 odd-product 基准（几乎纯算术负载）在 \textsc{evm} 上需 58s，在 \textsc{pvm} 原型中（包括全部预处理）需 1.04s。}对于本质上并不适合 256 位 \textsc{evm} \textsc{isa} 的代码，我们预计在 \textsc{pvm} 上的相对执行时间会显著改善，尽管仍需更多工作以确信这些加速具有普适性。
+
+若我们允许预处理占到与边际成本相同的比例（例如程序极大但运行时间很短），并且假设 \textsc{pvm} 计量导致执行速度有 2x 的安全冗余，那么可期望一枚 \Jam 核心能处理约 1,500 \textsc{evm} gas/µs 的等效量。考虑到分析的粗糙性，我们可以合理预估其在此值上下约三倍的范围——即 500–5,000 \textsc{evm} gas/µs。
+
+\Jam 的每个核心具备 2\textsc{mb}/s 的带宽，这必须包含任何状态 \textsc{i/o} 与需要新引入的数据（例如交易）。虽然写入对核心的相对成本较小（只需进行哈希以确定最终更新的默克尔根），但读取必须附带见证；在保守地假设一百万条目二叉默克尔前缀树时，每次读取的见证约为 640 字节。这导致每核心每秒最多略高于 3k 次读取，确切值取决于带宽中有多少用于新引入的输入数据。
+
+将除累积外的所有内容在 \Jam 上聚合（累积还可能进一步提高吞吐），数值可乘以 341（但需注意各核心的计算彼此之间不能互相干扰，除非通过状态喂价化与累积）。不同于 Polkadot 与 Ethereum 等“汇总链（roll-up chain）”设计，这里无需持久性地碎片化状态。只要更新通过每核心每秒 8\textsc{kb} 的工作结果进行，智能合约状态即可在 \Jam 链上以一致的形式保存，且工作结果中仅需包含被修改合约的状态根哈希。
+
+在我们的建模假设下，可总结如下：
+\begin{center}
+  \begin{tabular}[h]{@{}llll@{}}
+    \toprule
+    & Eth. L1 & \Jam Core & \Jam \\
+    \midrule
+    计算（\textsc{evm} gas/µs） & $1.25^\dagger$ & 500–5,000 & 0.15–1.5\textsc{m} \\
+    状态写（s$^{-1}$） & $57^\dagger$ & n/a & n/a \\
+    状态读（s$^{-1}$） & $595^\dagger$ & 4\textsc{k}${}^\ddagger$ & 1.4\textsc{m}${}^\ddagger$ \\
+    输入数据（s$^{-1}$） & 78\textsc{kb}${}^\dagger$ & 2\textsc{mb}${}^\ddagger$ & 682\textsc{mb}${}^\ddagger$ \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+可以看到，\Jam 的整体预测性能概况意味着其可与“基础版 Ethereum L1 链”的数千倍规模相当。其巨大差距基本源于三点：空间并行性——\Jam 可在其安全机制下承载数百枚核心；时间并行性——\Jam 令核心目标为持续执行，并将大量计算在区块之间流水化，以确保恒定、最优的负载；以及平台优化——采用与现代硬件体系高度契合的 \textsc{vm} 与 gas 模型。
+
+然而必须明确，这仅是初步且粗略的估算，仅用于将 \Jam 的性能以更直观的方式表达。具体而言，它未考虑：
+\begin{itemize}
+  \item 这些数字基于 Ethereum 的真实性能与 \Jam 的性能建模（尽管我们的模型基于组件的真实世界性能）；
+  \item \Jam 或 Ethereum 可能的任何 L2 扩容；
+  \item 使用 \Jam 所隐含的状态分区；
+  \item 仍未最终确定的 \textsc{pvm} gas 模型；
+  \item \textsc{pvm}/\textsc{evm} 的比较本身必然不精确；
+  \item (${}^\dagger$) Ethereum L1 的所有数据均取自同一来源：平均而言，每项仅达该最大值的 $\nicefrac{1}{4}$；
+  \item (${}^\ddagger$) \Jam 的状态读取与输入数据数值取自同一资源：平均而言，每项仅达该最大值的 $\nicefrac{1}{2}$。
+\end{itemize}
+
+我们将性能的实证分析，以及在 \Jam 与“包含尽可能多 L2 部署、并配合完整 Dank-sharding 以及其可能需要的任何其他共识要素”的假想 Ethereum 生态总和之间的分析与比较，留作后续工作；然而，这超出了本文的范围。

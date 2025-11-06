@@ -1,0 +1,152 @@
+\section{纠删码}
+\label{sec:erasurecoding}
+
+\newcommand{\join}{\text{join}}
+\newcommand{\spl}[1]{\text{split}_{#1}}
+
+
+\Jam 的数据可用性与分发系统的基础是一个在 \textsc{gf}($2^{16}$) 上的系统性 Reed-Solomon 纠删码函数，其编码率为 342:1023，与 \cite{lin2014novel} 所述算法相同。我们使用小端序的 $\blob[2]$ 形式表示 16 位 \textsc{gf} 点，并通过函数等价 $\fnencode[2]$ 来实现。从此我们定义编码函数 $\fnerasurecode: \sequence[342]{\blob[2]} \to \sequence[1023]{\blob[2]}$ 和恢复函数 $\fnecrecover: \protoset{\tuple{\blob[2], \Nmax{1023}}}_{342} \to \sequence[342]{\blob[2]}$。  
+编码过程是将一个大小为 684 字节的数据块（在 $\fnerasurecode$ 中表示为 342 个字节对）扩展为 1,023 个字节对。恢复过程则是收集任意 342 个不同的字节对及其索引，并将其转换为原始的 342 个字节对序列。
+
+实际上，这使得对长度为 684 字节倍数的数据进行高效的编码与恢复成为可能。长度不是 684 的整数倍的数据必须进行填充（我们采用零填充）。我们在 \Jam 协议中使用两类纠删码场景：其一是对可变大小（通常非常大）的数据块进行编码，用于审计 \textsc{da} 与区块分发系统；其二是对更小的固定大小数据 \emph{片段} 进行编码，用于导入 \textsc{da} 系统。
+
+在导入 \textsc{da} 系统中，输入大小为 4,104 字节，带来六倍的数据并行度。如果一次编码或恢复多个片段，我们可能获得更高的数据并行度，然而在恢复时可能受限于要求每个片段必须来自同一组索引（取决于具体算法）。
+
+\subsection{Blob 编码与恢复}
+
+假设有数据块 $\mathbf{d} \in \blob[684k], k \in \N$。该数据块被分为 $k$ 个片段，每个片段是 342 个字节对的序列。每个片段使用 $\fnerasurecode$ 进行纠删码扩展，得到 1,023 个字节对。
+
+得到的矩阵按字节对索引分组并拼接，形成 1,023 个 \emph{分块}，每个包含 $k$ 个字节对。任意 342 个分块即可重建原始数据 $\mathbf{d}$。
+
+形式化地，我们先定义两个工具函数：一个用于将大序列分割为若干个等长子序列，另一个用于将这些子序列重组为单个大序列：
+\begin{align}
+  \forall n \in \N, k \in \N :\ &\spl{n}(\mathbf{d} \in \blob[kn]) \in \sequence[k]{\blob[n]} \equiv \sq{\mathbf{d}\subrange{0}{n}, \mathbf{d}\subrange{n}{n}, \cdots, \mathbf{d}\subrange{(k-1)n}{n}} \\
+  \forall n \in \N, k \in \N :\ &\join(\mathbf{c} \in \sequence[k]{\blob[n]}) \in \blob[kn] \equiv \mathbf{c}_0 \concat \mathbf{c}_1 \concat \dots
+\end{align}
+
+我们定义转置算子如下：
+\begin{equation}\label{eq:transpose}
+  {}^\text{T}\sq{\sq{\mathbf{x}_{0, 0}, \mathbf{x}_{0, 1}, \mathbf{x}_{0, 2}, \dots}, \sq{\mathbf{x}_{1, 0}, \mathbf{x}_{1, 1}, \dots}, \dots} \equiv \sq{\sq{\mathbf{x}_{0, 0}, \mathbf{x}_{1, 0}, \mathbf{x}_{2, 0}, \dots}, \sq{\mathbf{x}_{0, 1}, \mathbf{x}_{1, 1}, \dots}, \dots}
+\end{equation}
+
+由此我们定义纠删码分块函数：该函数接受长度为 684 字节倍数的数据块，并输出 1,023 个小数据块的序列：
+\begin{equation}\label{eq:erasurecoding}
+  \fnerasurecode_{k \in \N}\colon\abracegroup{
+    \blob[684k] &\to \sequence[1023]{\blob[2k]} \\
+    \mathbf{d} &\mapsto \join^\#({}^{\text{T}}\sq{\build{\erasurecode{\mathbf{p}}}{\mathbf{p} \orderedin {}^\text{T}\spl{2}^\#(\spl{2k}(\mathbf{d}))}})
+  }
+\end{equation}
+
+原始数据可通过任意 1,023 个结果项中的 342 个（及其索引）恢复。如果原始 342 项已知，则恢复仅为其拼接：
+\begin{equation}
+  \label{eq:erasurecodinginv}
+  \fnecrecover_{k \in \N}\colon\abracegroup{
+    \protoset{\tuple{\blob[2k], \Nmax{1023}}}_{342} &\to \blob[684k] \\
+    \mathbf{c} &\mapsto \begin{cases}
+      \encode{\sq{\build{\mathbf{x}}{\tup{\mathbf{x}, i} \orderedin \sqorderby{i}{\tup{\mathbf{x}, i} \in \mathbf{c}}}}} &\when \set{\build{i}{\tup{\mathbf{x}, i} \in \mathbf{c}}} = \Nmax{342}\\
+      \join(\join^\#({}^\text{T}\sq{
+        \build{
+          \ecrecover{{\set{\build{
+           (\spl{2}(\mathbf{x})\sub{p}, i)
+          }{
+            \tup{\mathbf{x}, i} \in \mathbf{c}
+          }}}}
+        }{
+          p \in \Nmax{k}
+        }
+      })) &\text{always}\\
+    \end{cases}
+  }
+\end{equation}
+
+片段的编码与解码可使用相同的函数，只需设定常数 $k = 6$。
+
+\subsection{码字表示}
+
+为了简洁，我们称每个字节对为 \emph{字}。码字（包括消息字）作为 $\finitefield_{2^{16}}$ 有限域中的元素处理。该有限域由 $\finitefield_2$ 的扩展生成，使用如下不可约多项式：
+\begin{equation}
+x^{16} + x^5 + x^3 + x^2 + 1
+\end{equation}
+
+因此：
+\begin{equation}
+\finitefield_{2^{16}} \equiv \frac{\finitefield_2\subb{x}}{x^{16} + x^5 + x^3 + x^2 + 1}
+\end{equation}
+
+我们将上述多项式的根，即 $\frac{\finitefield_{2^{16}}}{\finitefield_2}$ 的生成元，记为 $\authpool$： $\finitefield_{2^{16}} = \finitefield_2(\authpool)$。
+
+与使用标准基 $\set{1, \authpool, \authpool^2, \dots, \authpool^{15}}$ 不同，我们采用一种更高效的表示，以便于编码与解码过程。为此，我们将该特殊表示记为 $\tilde{\finitefield}_{2^{16}}$，并用以下 Cantor 基定义：
+
+\begin{center}
+  \begin{tabular}{ll}
+    & \\
+    \hline
+    $v_0$ & $1$\\
+    $v_1$ & $\authpool^{15} + \authpool^{13} + \authpool^{11} + \authpool^{10} + \authpool^7
+    + \authpool^6 + \authpool^3 + \authpool$\\
+    $v_2$ & $\authpool^{13} + \authpool^{12} + \authpool^{11} + \authpool^{10} + \authpool^3
+    + \authpool^2 + \authpool$\\
+    $v_3$ & $\authpool^{12} + \authpool^{10} + \authpool^9 + \authpool^5 + \authpool^4 +
+    \authpool^3 + \authpool^2 + \authpool$\\
+    $v_4$ & $\authpool^{15} + \authpool^{14} + \authpool^{10} + \authpool^8 + \authpool^7 +
+    \authpool$\\
+    $v_5$ & $\authpool^{15} + \authpool^{14} + \authpool^{13} + \authpool^{11} +
+    \authpool^{10} + \authpool^8 + \authpool^5 + \authpool^3 + \authpool^2 + \authpool$\\
+    $v_6$ & $\authpool^{15} + \authpool^{12} + \authpool^8 + \authpool^6 + \authpool^3 +
+    \authpool^2$\\
+    $v_7$ & $\authpool^{14} + \authpool^4 + \authpool$\\
+    $v_8$ & $\authpool^{14} + \authpool^{13} + \authpool^{11} + \authpool^{10} + \authpool^7
+    + \authpool^4 + \authpool^3$\\
+    $v_9$ & $\authpool^{12} + \authpool^7 + \authpool^6 + \authpool^4 + \authpool^3$\\
+    $v_{10}$ & $\authpool^{14} + \authpool^{13} + \authpool^{11} + \authpool^9 + \authpool^6
+    + \authpool^5 + \authpool^4 + \authpool$\\
+    $v_{11}$ & $\authpool^{15} + \authpool^{13} + \authpool^{12} + \authpool^{11} + \authpool^8$\\
+    $v_{12}$ & $\authpool^{15} + \authpool^{14} + \authpool^{13} + \authpool^{12} + \authpool^{11} + \authpool^{10} + \authpool^8 + \authpool^7 + \authpool^5 + \authpool^4 + \authpool^3$\\
+    $v_{13}$ & $\authpool^{15} + \authpool^{14} + \authpool^{13} + \authpool^{12} +
+    \authpool^{11} + \authpool^9 + \authpool^8 + \authpool^5 + \authpool^4 + \authpool^2$\\
+    $v_{14}$ & $\authpool^{15} + \authpool^{14} + \authpool^{13} + \authpool^{12} +
+    \authpool^{11} + \authpool^{10} + \authpool^9 + \authpool^8 + \authpool^5 + \authpool^4 +
+    \authpool^3$\\
+    $v_{15}$ & $\authpool^{15} + \authpool^{12} + \authpool^{11} + \authpool^8 + \authpool^4
+    + \authpool^3 + \authpool^2 + \authpool$\\
+    \hline
+  \end{tabular}
+\end{center}
+
+每个消息字 $m\sub{i}=m_{i, 15} \ldots m\sub{i, 0}$ 包含 16 位，因此可以视为长度为 16 的二进制向量：
+\begin{equation}
+m\sub{i} = \tup{m\sub{i, 0} \ldots m\sub{i, 15}}
+\end{equation}
+
+其中 $m_{i, 0}$ 为 $m\sub{i}$ 的最低有效位。相应地，我们将场元素表示为 $\tilde{m}\sub{i} = \sum^{15}_{j = 0} m\sub{i, j} v\sub{j}$。
+
+类似地，我们为每个验证者分配一个 0 至 1,022 的唯一索引，并用以下场元素表示验证者 $i$：
+\begin{equation}
+\tilde{i} = \sum^{15}_{j = 0} i\sub{j} v\sub{j}
+\end{equation}
+
+其中 $i = i_{15} \ldots i_0$ 为 $i$ 的二进制表示。
+
+\subsection{生成多项式}
+
+为了将 342 个字扩展为 1023 个码字，我们将每个消息表示为上述场元素，并插值一个最高次数为 341 的多项式 $p(y)$，其满足：
+\begin{equation}
+   \begin{array}{l}
+     p (\tilde{0}) = \widetilde{m_0}\\
+     p (\tilde{1}) = \widetilde{m_1}\\
+     \vdots\\
+     p (\widetilde{341}) = \widetilde{m_{341}}
+   \end{array}
+\end{equation}
+
+得到 $p(y)$ 后，我们在以下点进行取值：
+\begin{equation}
+   \begin{array}{l}
+     \widetilde{r_{342}} : = p (\widetilde{342})\\
+     \widetilde{r_{343}} : = p (\widetilde{343})\\
+     \vdots\\
+     \widetilde{r_{1022}} : = p (\widetilde{1022})
+   \end{array}
+\end{equation}
+
+最后，我们将消息字与额外生成的码字根据索引分配给验证者。

@@ -1,0 +1,56 @@
+\section{Recent History}\label{sec:recenthistory}
+
+我们在状态中保留最近 $\Crecenthistorylen$ 个区块的信息。这样做用于防止提交重复或过期的工作报告（work-reports）。
+\begin{align}
+  \label{eq:recentspec}
+  \recent &\equiv \tup{\recenthistory, \accoutbelt}\\
+  \label{eq:recenthistoryspec}
+  \recenthistory &\in \sequence[:\Crecenthistorylen]{\tuple{
+    \isa{\rh¬headerhash}{\hash},
+    \isa{\rh¬stateroot}{\hash},
+    \isa{\rh¬accoutlogsuperpeak}{\hash},
+    \isa{\rh¬reportedpackagehashes}{\dictionary{\hash}{\hash}}
+  }}\\
+  \label{eq:accoutbeltspec}
+  \accoutbelt &\in \sequence{\optional{\hash}} \\
+  \label{eq:lastaccoutspec}
+  \lastaccout &\in \sequence{\tup{\serviceid, \hash}}
+\end{align}
+
+对每个最近的区块，我们保留其区块头哈希、其状态根、其累积结果的 \textsc{mmb}，以及每个已上报条目的对应工作包哈希（其数量不超过核心总数，$\Ccorecount = 341$）。
+
+在累积阶段，会给出一个包含该状态的部分转换值，其中包含了对父区块新近已知状态根的修正：
+\begin{equation}\label{eq:correctlaststateroot}
+  \recenthistorypostparentstaterootupdate \equiv \recenthistory\quad\exc\quad\recenthistorypostparentstaterootupdate\subb{\len{\recenthistory} - 1}_\rh¬stateroot = \H_\¬priorstateroot
+\end{equation}
+
+我们定义新的累积输出日志（Accumulation Output Log）$\accoutbelt$。它由区块的累积输出序列 $\lastaccout'$（定义见第 \ref{sec:accumulation} 节）经由基础二叉默克尔化函数（$\fnmerklizewb$，定义见附录 \ref{sec:merklization}）取根后，与先前的日志值通过 \textsc{mmb} 追加函数（定义见附录 \ref{sec:mmr}）进行追加而成。全程使用 Keccak 哈希函数以最大化与既有系统的兼容性：
+\begin{align}
+  \using \mathbf{s} &= \sq{\build{\encode[4]{s} \concat \encode{h}}{\tup{s, h} \orderedin \lastaccout'}}\\
+  \label{eq:accoutbeltdef}
+  \accoutbelt' &\equiv \mmrappend{\accoutbelt, \merklizewb{\mathbf{s}, \fnkeccak}, \fnkeccak}
+\end{align}
+
+对 $\recenthistory$ 的最终状态转换会追加一个新条目，其中包含新块的区块头哈希、对该块累积输出日志的默克尔承诺，以及写入其中的工作报告集合（我们使用保障外部事务 $\xtguarantees$ 提供）。形式化地：
+\begin{equation}
+  \label{eq:recenthistorydef}
+  \begin{aligned}
+    \recenthistory' &\equiv {\overleftarrow{\recenthistorypostparentstaterootupdate \append \tup{
+      \rh¬reportedpackagehashes,
+      \is{\rh¬headerhash}{\blake{\theheader}},
+      \is{\rh¬stateroot}{\zerohash},
+      \is{\rh¬accoutlogsuperpeak}{\mmrsuperpeak{\accoutbelt'}}
+      }}}^\Crecenthistorylen \\
+    \where \rh¬reportedpackagehashes &= \set{\build{
+        \kv{
+          ((g_\xg¬workreport)_\wr¬avspec)_\as¬packagehash
+        }{
+          ((g_\xg¬workreport)_\wr¬avspec)_\as¬segroot
+        }
+      }{
+        g \in \xtguarantees
+      }}
+  \end{aligned}
+\end{equation}
+
+新的状态树根为零哈希 $\zerohash$；这虽不精确，但却安全，因为 $\recent'$ 除了用于定义下一块的 $\recentpostparentstaterootupdate$ 外并不会被使用，而后者会按式 \ref{eq:correctlaststateroot} 给出该值的更正版本。

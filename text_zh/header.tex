@@ -1,0 +1,73 @@
+\section{区块头}\label{sec:header}
+
+我们首先需要根据组成部分来定义区块头。区块头包含：父哈希与前状态根（$\H_\¬parent$ 和 $\H_\¬priorstateroot$）、外部交易哈希 $\H_\¬extrinsichash$、时隙索引 $\H_\¬timeslot$、纪元标记、获胜票据与违规者标记（$\H_\¬epochmark$、$\H_\¬winnersmark$ 和 $\H_\¬offendersmark$）、区块作者索引 $\H_\¬authorindex$，以及两个 Bandersnatch 签名：熵生成的 \textsc{vrf} 签名 $\H_\¬vrfsig$ 和区块封印 $\H_\¬sealsig$。  
+区块头可以序列化为字节序列，既可以包含封印组件，也可以不包含，分别通过 $\fnencode$ 和 $\fnencodeunsignedheader$ 实现。形式化定义如下：
+\begin{equation}\label{eq:header}
+  \theheader \equiv \tup{\H_\¬parent, \H_\¬priorstateroot, \H_\¬extrinsichash, \H_\¬timeslot, \H_\¬epochmark, \H_\¬winnersmark, \H_\¬offendersmark, \H_\¬authorindex, \H_\¬vrfsig, \H_\¬sealsig}
+\end{equation}
+
+区块链是一系列区块组成的序列，每个区块通过在其区块头中包含父区块头的哈希来加密地引用先前区块，直至最初引用创世区块头的首个区块。我们已经假设对创世区块头 $\genesisheader$ 及其表示的状态 $\genesisstate$ 达成共识。
+
+\newcommand*{\fngetparent}{P}
+\newcommand*{\getparent}[1]{\fngetparent\left(#1\right)}
+
+除创世区块头外，所有区块头 $\header$ 都有一个关联的父区块头，其哈希为 $\header_\¬parent$。我们将父区块头记为 $\parentheader{\header} = \getparent{\header}$：
+\begin{equation}
+  \header_\¬parent \in \hash \,,\quad \H_\¬parent \equiv \blake{\encode{\getparent{\header}}}
+\end{equation}
+
+因此，$\fngetparent$ 定义为从一个区块头映射到其父区块头的函数。通过 $\fngetparent$，我们能够定义祖先区块头集合 $\ancestors$：
+\begin{align}\label{eq:ancestors}
+  h \in \ancestors \Leftrightarrow h = \header \vee (\exists i \in \ancestors : h = \getparent{i})
+\end{align}
+
+我们只要求实现存储任意区块 $\block$ 在过去 $\Cmaxlookupanchorage = 24$ 小时内的祖先区块头，以便验证该区块。
+
+外部交易哈希是对区块外部交易数据的 Merkle 承诺，同时确保报告的单独包含可被证明。给定区块 $\block = \tup{\header, \extrinsic}$，形式化定义为：
+\begin{align}
+  \H_\¬extrinsichash &\in \hash \ ,\quad
+  \H_\¬extrinsichash \equiv \blake{\encode{\blakemany{\mathbf{a}}}} \\
+  \where \mathbf{a} &= \sq{
+    \encodetickets{\xttickets},
+    \encodepreimages{\xtpreimages},
+    \mathbf{g},
+    \encodeassurances{\xtassurances},
+    \encodedisputes{\xtdisputes}
+  } \\
+  \also \mathbf{g} &= \encode{\var{\sq{\build{
+    \tup{\blake{\xg¬workreport}, \encode[4]{\xg¬timeslot}, \var{\xg¬credential}}
+  }{
+    \tup{\xg¬workreport, \xg¬timeslot, \xg¬credential} \orderedin \xtguarantees
+  }}}}
+\end{align}
+
+一个区块只有当其时隙索引 $\H_\¬timeslot$ 在过去时，才能被视为有效。该索引总是严格大于其父区块的时隙。形式化表示为：
+\begin{equation}
+  \H_\¬timeslot \in \timeslot \,,\quad
+  \getparent{\H}_\¬timeslot < \H_\¬timeslot\ \wedge\ \H_\¬timeslot\cdot\Cslotseconds \leq \wallclock
+\end{equation}
+
+根据该规则被视为无效的区块，随着 $\wallclock$ 的推进，可能会变为有效。
+
+父状态根 $\H_\¬priorstateroot$ 是由 \emph{前一} 状态的 Merkle 根组成的 Merkle Trie 的根，其定义上也等同于父区块的后状态。这一点不同于 Polkadot 和以太坊黄皮书中的定义，二者都在区块头中存储 \emph{后状态} 的 Merkle 根。我们之所以采用这种方式，是为了方便流水化的区块计算，特别是 Merkle 化过程：
+\begin{equation}
+  \H_\¬priorstateroot \in \hash \,,\quad \H_\¬priorstateroot \equiv \merklizestate{\thestate}
+\end{equation}
+
+我们假设状态 Merkle 化函数 $\fnmerklizestate$ 能够将状态 $\thestate$ 转换为一个 32 字节的承诺。完整定义见附录 \ref{sec:statemerklization}。
+
+所有区块都有一个关联的公钥来标识区块作者。我们将其表示为后状态下当前验证者集合 $\activeset'$ 中的一个索引。我们记区块作者的 Bandersnatch 密钥为 $\H_\¬authorbskey$，但需注意这仅是一种等价关系，并不会序列化为区块头的一部分：
+\begin{equation}
+  \H_\¬authorindex \in \valindex \,,\quad \H_\¬authorbskey \equiv \activeset'[\H_\¬authorindex]_\vk¬bs
+\end{equation}
+
+\subsection{标记}\label{sec:markers}
+
+如果不为 $\none$，则纪元标记指定了与后续纪元相关的密钥和熵，用于在票据竞选未能充分完成时使用（这种情况极为罕见）。同样，如果获胜票据标记不为 $\none$，则其提供下一纪元的 600 个时隙封印“票据”（见下一节）。最后，违规者标记是新出现的违规验证者的 Ed25519 密钥序列，完整解释见 \ref{sec:disputes} 节。形式化表示为：
+\begin{equation}
+  \H_\¬epochmark \in \optional{\tuple{\hash, \hash, \sequence[\Cvalcount]{\tuple{\bskey, \edkey}}}}\,,\quad
+  \H_\¬winnersmark \in \optional{\sequence[\Cepochlen]{\safroleticket}}\,,\quad
+  \H_\¬offendersmark \in \sequence{\edkey}
+\end{equation}
+
+这些术语在 \ref{sec:epochmarker} 和 \ref{sec:disputes} 节中有完整定义。
